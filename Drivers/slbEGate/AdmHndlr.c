@@ -41,7 +41,6 @@ static IONotificationPortRef gNotifyPort;
  * A list to keep track of 20 simultaneous readers 
  */
 
-static mach_port_t masterPort;
 static long hpManu_id, hpProd_id;
 static CFMutableDictionaryRef matchingDict;
 
@@ -56,19 +55,10 @@ void RawDeviceAdded(void *refCon, io_iterator_t iterator)
 
 	while (obj = IOIteratorNext(iterator))
 	{
-
-		if (refCon == NULL)
-		{	/* Dont do this on (void *)1 */  
-
-  rv = OpenUSB(0);
-
-  deviceStatus = 1;
-
-                printf("Added\n");
-
-		}
-
-		kr = IOObjectRelease(obj);
+            rv = OpenUSB(0);
+            usleep(500000);
+            deviceStatus = 1;
+            kr = IOObjectRelease(obj);
 	}
 
 }
@@ -80,37 +70,21 @@ void RawDeviceRemoved(void *refCon, io_iterator_t iterator)
 
 	while (obj = IOIteratorNext(iterator))
 	{
-
-		if (refCon == NULL)
-		{ 
-
-  CloseUSB(0);
-
-    deviceStatus = 0;
-                    printf("Removed\n");
-
-		}
-
-		kr = IOObjectRelease(obj);
+            CloseUSB(0);
+            deviceStatus = 0;
+            kr = IOObjectRelease(obj);
 	}
 }
 
 void HPEstablishUSBNotifications()
 {
+        io_iterator_t 		iter = 0;
         mach_port_t 		tmpMasterPort;
 	const char 		*cStringValue;
 	CFStringRef 		propertyString;
 	kern_return_t 		kr;
 	CFRunLoopSourceRef 	runLoopSource;
 	int 			i;
-
-	kr = IOMasterPort(MACH_PORT_NULL, &masterPort);
-	if (kr != 0)
-        {
-                printf("ERR: Couldn't create a master IOKit Port(%08x)\n", kr);
-		return -1;
-        }
-
 
         // first create a master_port for my task
         kr = IOMasterPort(MACH_PORT_NULL, &tmpMasterPort);
@@ -142,6 +116,8 @@ void HPEstablishUSBNotifications()
                                         CFNumberCreate(kCFAllocatorDefault,
                                         kCFNumberSInt32Type, 
                                         &hpProd_id));
+
+
 
 		// Create a notification port and add its run loop event source to 
 		// our run loop
@@ -177,7 +153,7 @@ void HPEstablishUSBNotifications()
 		 * packet from a real event so that I can filter it well 
 		 */
 
-		RawDeviceAdded((void *) 1, gRawAddedIter);
+		RawDeviceAdded(NULL, gRawAddedIter);
 
 		kr = IOServiceAddMatchingNotification(gNotifyPort,
                                                         kIOTerminatedNotification,
@@ -185,7 +161,7 @@ void HPEstablishUSBNotifications()
                                                         RawDeviceRemoved, NULL, 
                                                         &gRawRemovedIter);
 
-		RawDeviceRemoved((void *) 1, gRawRemovedIter);
+		RawDeviceRemoved(NULL, gRawRemovedIter);
         
         // Now done with the master_port
         mach_port_deallocate(mach_task_self(), tmpMasterPort);

@@ -25,17 +25,17 @@ static struct _IFDCard {
 } IFDCard;
 
 static pthread_t usbNotifyThread;
+static int isInitialized = 0;
 
 RESPONSECODE IFDHCreateChannel ( DWORD Lun, DWORD Channel ) {
 
   ULONG rv, rvb;
 
-  rv = pthread_create(&usbNotifyThread, NULL,
-                        (void *)HPEstablishUSBNotifications, 0);
-
-  printf("SUCCESS !!!\n");
-/*
-*/  
+  if ( isInitialized == 0 ) {
+    rv = pthread_create(&usbNotifyThread, NULL,
+                       (void *)HPEstablishUSBNotifications, 0);
+    isInitialized = 1;
+  }
   
 return IFD_SUCCESS;  
 }
@@ -44,9 +44,6 @@ return IFD_SUCCESS;
 RESPONSECODE IFDHCloseChannel ( DWORD Lun ) {
 
   ULONG rv;
-
-
-  
   return IFD_SUCCESS;     
 }
 
