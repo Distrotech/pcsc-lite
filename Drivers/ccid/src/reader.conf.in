@@ -1,7 +1,0 @@
-
-# Gemplus GemPCTwin reader with serial communication
-# n is the serial port to use n in [1..4]
-FRIENDLYNAME      "GemPCTwin serial"
-DEVICENAME        /dev/pcsc/n
-LIBPATH           TARGET
-CHANNELID         n
