@@ -26,7 +26,8 @@
 
 #define ADM_MAX_TIMEOUT  10
 
-
+DWORD Adm_IsICCPresent( DWORD Lun );
+void HPEstablishUSBNotifications();
 //DWORD Adm_ResetICC( DWORD, PUCHAR, PDWORD );
 DWORD Adm_TransmitICC( DWORD, PUCHAR, DWORD, PUCHAR, PDWORD );
 

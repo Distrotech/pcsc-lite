@@ -14,8 +14,191 @@
 #include "usbserial_osx.h"
 #include <time.h>
 #include <unistd.h>
+#include <IOKit/IOKitLib.h>
+#include <IOKit/IOCFPlugIn.h>
+#include <IOKit/usb/USB.h>
+#include <IOKit/usb/USBSpec.h>
+#include <IOKit/usb/IOUSBLib.h>
+#include <string.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <CoreFoundation/CFPlugIn.h>
+#include <CoreFoundation/CFBundle.h>
+#include <CoreFoundation/CFString.h>
+#include <CoreFoundation/CFURL.h>
+#include <stdio.h>
+
 
 DWORD timeOut = 500000;
+
+void RawDeviceAdded(void *, io_iterator_t);
+void RawDeviceRemoved(void *, io_iterator_t);
+
+static io_iterator_t gRawAddedIter;
+static io_iterator_t gRawRemovedIter;
+static IONotificationPortRef gNotifyPort;
+
+/*
+ * A list to keep track of 20 simultaneous readers 
+ */
+
+static mach_port_t masterPort;
+static long hpManu_id, hpProd_id;
+static CFMutableDictionaryRef matchingDict;
+
+static int deviceStatus = 0;
+
+
+void RawDeviceAdded(void *refCon, io_iterator_t iterator)
+{
+        ULONG rv;
+	kern_return_t kr;
+	io_service_t obj;
+
+	while (obj = IOIteratorNext(iterator))
+	{
+
+		if (refCon == NULL)
+		{	/* Dont do this on (void *)1 */  
+
+  rv = OpenUSB(0);
+
+  deviceStatus = 1;
+
+                printf("Added\n");
+
+		}
+
+		kr = IOObjectRelease(obj);
+	}
+
+}
+
+void RawDeviceRemoved(void *refCon, io_iterator_t iterator)
+{
+	kern_return_t kr;
+	io_service_t obj;
+
+	while (obj = IOIteratorNext(iterator))
+	{
+
+		if (refCon == NULL)
+		{ 
+
+  CloseUSB(0);
+
+    deviceStatus = 0;
+                    printf("Removed\n");
+
+		}
+
+		kr = IOObjectRelease(obj);
+	}
+}
+
+void HPEstablishUSBNotifications()
+{
+        mach_port_t 		tmpMasterPort;
+	const char 		*cStringValue;
+	CFStringRef 		propertyString;
+	kern_return_t 		kr;
+	CFRunLoopSourceRef 	runLoopSource;
+	int 			i;
+
+	kr = IOMasterPort(MACH_PORT_NULL, &masterPort);
+	if (kr != 0)
+        {
+                printf("ERR: Couldn't create a master IOKit Port(%08x)\n", kr);
+		return -1;
+        }
+
+
+        // first create a master_port for my task
+        kr = IOMasterPort(MACH_PORT_NULL, &tmpMasterPort);
+        if (kr || !tmpMasterPort)
+        {
+            printf("ERR: Couldn't create a master IOKit Port(%08x)\n", kr);
+            return;
+        }
+
+                hpManu_id = 0x0973;
+		hpProd_id = 0x0001;
+
+		// Set up the matching criteria for the devices we're interested
+		// in
+		matchingDict = IOServiceMatching(kIOUSBDeviceClassName);
+                
+		if (!matchingDict)
+		{
+                    printf("Can't make USBMatch dict.\n");
+		}
+		// Add our vendor and product IDs to the matching criteria
+		CFDictionarySetValue(matchingDict,
+                                        CFSTR(kUSBVendorName),
+                                        CFNumberCreate(kCFAllocatorDefault, 
+                                        kCFNumberSInt32Type,
+                                        &hpManu_id));
+		CFDictionarySetValue(matchingDict,
+                                        CFSTR(kUSBProductName), 
+                                        CFNumberCreate(kCFAllocatorDefault,
+                                        kCFNumberSInt32Type, 
+                                        &hpProd_id));
+
+		// Create a notification port and add its run loop event source to 
+		// our run loop
+		// This is how async notifications get set up.
+		gNotifyPort = IONotificationPortCreate(tmpMasterPort);
+		runLoopSource = IONotificationPortGetRunLoopSource(gNotifyPort);
+
+		CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource,
+                                    kCFRunLoopDefaultMode);
+
+		// Retain additional references because we use this same
+		// dictionary with four calls to 
+		// IOServiceAddMatchingNotification, each of which consumes one
+		// reference.
+		matchingDict =
+			(CFMutableDictionaryRef) CFRetain(matchingDict);
+		matchingDict =
+			(CFMutableDictionaryRef) CFRetain(matchingDict);
+		matchingDict =
+			(CFMutableDictionaryRef) CFRetain(matchingDict);
+
+		// Now set up two notifications, one to be called when a raw
+		// device is first matched by I/O Kit, and the other to be
+		// called when the device is terminated.
+		kr = IOServiceAddMatchingNotification(gNotifyPort,
+                                                        kIOFirstMatchNotification,
+                                                        matchingDict,
+                                                        RawDeviceAdded, NULL, 
+                                                        &gRawAddedIter);
+
+		/*
+		 * The void * 1 allows me to distinguish this initialization
+		 * packet from a real event so that I can filter it well 
+		 */
+
+		RawDeviceAdded((void *) 1, gRawAddedIter);
+
+		kr = IOServiceAddMatchingNotification(gNotifyPort,
+                                                        kIOTerminatedNotification,
+                                                        matchingDict,
+                                                        RawDeviceRemoved, NULL, 
+                                                        &gRawRemovedIter);
+
+		RawDeviceRemoved((void *) 1, gRawRemovedIter);
+        
+        // Now done with the master_port
+        mach_port_deallocate(mach_task_self(), tmpMasterPort);
+        tmpMasterPort = 0;
+
+	CFRunLoopRun();
+
+}
+
+DWORD Adm_IsICCPresent( DWORD Lun ) {
+  return deviceStatus;
+}
+
 
 DWORD Adm_ResetICC( DWORD Lun, PUCHAR Atr, PDWORD AtrLength) {
 

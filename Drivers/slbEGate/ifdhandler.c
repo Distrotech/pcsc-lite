@@ -24,24 +24,20 @@ static struct _IFDCard {
   DWORD  AtrLength;
 } IFDCard;
 
+static pthread_t usbNotifyThread;
+
 RESPONSECODE IFDHCreateChannel ( DWORD Lun, DWORD Channel ) {
 
   ULONG rv, rvb;
 
-  rv = OpenUSB(Lun);
+  rv = pthread_create(&usbNotifyThread, NULL,
+                        (void *)HPEstablishUSBNotifications, 0);
 
-  if ( rv != STATUS_SUCCESS ) {
-    return IFD_COMMUNICATION_ERROR;
-  }
-
-  rv  = Adm_ResetICC( Lun, IFDCard.Atr, &IFDCard.AtrLength ); 
-
-  if ( rv == STATUS_SUCCESS ) {
-    return IFD_SUCCESS;
-  } else {
-    return IFD_COMMUNICATION_ERROR;
-  }
+  printf("SUCCESS !!!\n");
+/*
+*/  
   
+return IFD_SUCCESS;  
 }
 
 
@@ -49,11 +45,6 @@ RESPONSECODE IFDHCloseChannel ( DWORD Lun ) {
 
   ULONG rv;
 
-  rv = CloseUSB(Lun);
-
-  if ( rv != STATUS_SUCCESS ) {
-    return IFD_COMMUNICATION_ERROR;
-  }
 
   
   return IFD_SUCCESS;     
@@ -94,6 +85,11 @@ RESPONSECODE IFDHSetProtocolParameters ( DWORD Lun, DWORD Protocol,
 RESPONSECODE IFDHPowerICC ( DWORD Lun, DWORD Action, 
 			    PUCHAR Atr, PDWORD AtrLength ) {
 ULONG rv;
+
+if (Adm_IsICCPresent(Lun) == 0) {
+  return IFD_ICC_NOT_PRESENT;      
+}
+
 
   if ( Action == IFD_POWER_UP ) {
         rv = Adm_ResetICC( Lun, Atr, AtrLength ); 
@@ -191,6 +187,10 @@ RESPONSECODE IFDHControl ( DWORD Lun, PUCHAR TxBuffer,
 
 RESPONSECODE IFDHICCPresence( DWORD Lun ) {
 
- return IFD_ICC_PRESENT;      
 
+if (Adm_IsICCPresent(Lun)) {
+  return IFD_ICC_PRESENT;
+} else {
+  return IFD_ICC_NOT_PRESENT;      
+}
 }
