@@ -37,7 +37,7 @@ RESPONSECODE IFDHCreateChannel ( DWORD Lun, DWORD Channel ) {
     isInitialized = 1;
   }
   
-return IFD_SUCCESS;  
+  return IFD_SUCCESS;  
 }
 
 
