@@ -1,0 +1,14 @@
+acinclude.m4
+aclocal.m4
+autom4te.cache
+build-stamp
+ChangeLog
+config.h
+config.log
+config.status
+configure
+configure-stamp
+libtool
+Makefile
+Makefile.in
+stamp-h1

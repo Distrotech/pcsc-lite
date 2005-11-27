@@ -1,0 +1,10 @@
+.deps
+*.la
+.libs
+*.lo
+Makefile
+Makefile.in
+parse
+tokenparser.c
+tokenparser_fake.c
+tokenparser_fake.l
