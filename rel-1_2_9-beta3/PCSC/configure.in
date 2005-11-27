@@ -1,0 +1,355 @@
+dnl -*- mode: m4; -*-
+dnl Process this file with autoconf to produce a configure script
+
+# Require autoconf 2.52
+AC_PREREQ(2.52)
+
+AC_INIT(pcsc-lite, 1.2.9-beta3)
+AC_CONFIG_SRCDIR(src/pcscdaemon.c)
+AM_INIT_AUTOMAKE
+AM_CONFIG_HEADER(config.h)
+
+AC_PREFIX_DEFAULT(/usr/local)
+
+AC_CANONICAL_HOST
+AC_PROG_CC
+AC_C_BIGENDIAN
+
+dnl Check for some target-specific stuff
+case "$host" in
+*-*-hpux*)
+	CPPFLAGS="$CPPFLAGS -D_HPUX_SOURCE -D_XOPEN_SOURCE_EXTENDED"
+	;;
+*-*-solaris*)
+	CPPFLAGS="$CPPFLAGS -I/usr/local/include"
+	LDFLAGS="$LDFLAGS -L/usr/local/lib -R/usr/local/lib"
+	need_dash_r=1
+	;;
+*-*-sunos4*)
+	CPPFLAGS="$CPPFLAGS -DSUNOS4"
+	;;
+*-*-aix*)
+	CPPFLAGS="$CPPFLAGS -I/usr/local/include"
+	LDFLAGS="$LDFLAGS -L/usr/local/lib"
+	if (test "$LD" != "gcc" && test -z "$blibpath"); then
+		blibpath="/usr/lib:/lib:/usr/local/lib"
+	fi
+	;;
+*-*-osf*)
+	CPPFLAGS="$CPPFLAGS -D_POSIX_PII_SOCKET"
+	;;
+*-*-darwin*)
+	AC_SUBST(COREFOUNDATION)
+	COREFOUNDATION="-Wl,-framework,CoreFoundation"
+	AC_SUBST(IOKIT)
+	IOKIT="-Wl,-framework,IOKit"
+	if test "$GCC" = "yes"; then
+		CFLAGS="$CFLAGS -no-cpp-precomp"
+	fi
+	;;
+esac
+
+dnl Options
+AM_MAINTAINER_MODE
+
+dnl Checks for programs
+AC_PROG_CPP
+AC_PROG_INSTALL
+AC_PROG_LN_S
+AC_PROG_MAKE_SET
+AM_PROG_LEX
+AC_PATH_PROG(TEST_MINUS_S_SH, bash)
+AC_PATH_PROG(TEST_MINUS_S_SH, ksh)
+AC_PATH_PROG(TEST_MINUS_S_SH, sh)
+
+dnl Special check for pthread support
+ACX_PTHREAD(
+[
+ AC_DEFINE(HAVE_PTHREAD, 1,
+  [Define if you have POSIX threads libraries and header files.])
+], [
+ AC_MSG_ERROR([POSIX thread support required])
+])
+
+dnl --enable-threadsafe
+AC_ARG_ENABLE(threadsafe,
+  AC_HELP_STRING([--enable-threadsafe],[enable client side thread safety]),
+[case "${enableval}" in
+  yes)	threadsafe=true ;;
+  no)	threadsafe=false ;;
+  *) AC_MSG_ERROR([bad value ${enableval} for --enable-threadsafe]) ;;
+ esac], [threadsafe=true])
+
+LIBS="$PTHREAD_LIBS $LIBS"
+CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
+CC="$PTHREAD_CC"
+
+AC_SUBST(PTHREAD_LIBS)
+AC_SUBST(PTHREAD_CFLAGS)
+
+dnl Add libtool support
+AM_PROG_LIBTOOL
+dnl Automatically update the libtool script if it becomes out-of-date
+#AC_SUBST(LIBTOOL_DEPS)
+
+dnl Checks for header files
+AC_HEADER_STDC
+AC_HEADER_SYS_WAIT
+AC_CHECK_HEADERS([dirent.h dl.h dlfcn.h errno.h fcntl.h getopt.h malloc.h stdlib.h string.h strings.h sys/filio.h sys/time.h syslog.h unistd.h smartcard/scf.h])
+
+dnl Checks for typedefs, structures, and compiler characteristics
+AC_C_CONST
+AC_TYPE_UID_T
+AC_TYPE_SIZE_T
+AC_HEADER_TIME
+
+dnl Checks for library functions
+AC_FUNC_ERROR_AT_LINE
+AC_FUNC_STAT
+AC_FUNC_VPRINTF
+AC_CHECK_FUNCS(daemon flock getopt_long nanosleep strerror strncpy vsnprintf)
+
+dnl C Compiler features
+AC_C_INLINE
+if test "$GCC" = "yes"; then
+	CFLAGS="-Wall -fno-common $CFLAGS"
+fi
+
+AC_SUBST(LIBDL)
+AC_CHECK_LIB(dl, dlopen, [LIBDL="$LIBDL -ldl" ac_cv_func_dlopen_ldl=yes], ac_cv_func_dlopen_ldl=no)
+
+dnl Use 'uname' output as an architecture define
+uname=`uname`
+case "$uname" in
+Darwin)
+	uname=MacOS
+	;;
+esac
+AC_DEFINE_UNQUOTED(PCSC_ARCH, "$uname", [PC/SC target architecture])
+
+dnl See if socket() is found from libsocket
+AC_CHECK_LIB(socket, socket, [LIBS="$LIBS -lsocket"])
+
+dnl Probe for a proper flex library
+AC_SUBST(LIBFL)
+AC_CHECK_LIB(l, yywrap,
+	[ LIBFL="$LIBFL -ll" ],
+	AC_CHECK_LIB(fl, yywrap,
+		[ LIBFL="$LIBFL -lfl" ],
+		[ AC_MSG_ERROR([lex library required]) ] ))
+
+AC_SUBST(LIBUSB)
+dnl --enable-libusb=DIR
+AC_ARG_ENABLE(libusb,
+  AC_HELP_STRING([--enable-libusb=PATH],[enable USB hotplug using libusb]),
+	[
+		case ${enableval} in
+			"" | "yes" | "YES")
+				;;
+			"no" | "NO")
+				use_libusb=false
+				;;
+			*)
+				use_libusb=false
+				libusb_prefix=${enableval}
+				AC_CHECK_LIB(usb, usb_init, [LIBUSB="$LIBUSB -lusb" use_libusb=true ], [ use_libusb=false ], "-L${libusb_prefix}/lib")
+				AC_CHECK_HEADERS(${libusb_prefix}/include/usb.h, [ use_libusb=true ], [ use_libusb=false ])
+				if test x$use_libusb = xtrue; then
+					CPPFLAGS="$CPPFLAGS -I${libusb_prefix}/include"
+					LDFLAGS="$LDFLAGS -L${libusb_prefix}/lib"
+				fi
+				;;
+		esac
+	]
+)
+
+dnl if use_libusb is not yet defined
+if test x$use_libusb = x; then
+	dnl check if libusb is available
+	AC_CHECK_HEADERS(usb.h, [ use_libusb=true ], [ use_libusb=false ])
+	AC_CHECK_LIB(usb, usb_init, [LIBUSB="$LIBUSB -lusb" use_libusb=true ], [ use_libusb=false ])
+fi
+
+AC_MSG_RESULT([enable libusb support         : $use_libusb])
+
+AM_CONDITIONAL(PCSC_USE_LIBUSB, test x$use_libusb = xtrue)
+if test x$use_libusb = xtrue; then
+  AC_DEFINE(HAVE_LIBUSB,1, [Libusb is available])
+fi
+
+dnl --enable-usbdropdir=DIR
+AC_ARG_ENABLE(usbdropdir,
+  AC_HELP_STRING([--enable-usbdropdir=DIR],[directory containing USB
+				  drivers (default /usr/local/pcsc/drivers)]),
+[usbdropdir="${enableval}"], [usbdropdir=false])
+if test x${usbdropdir} = xfalse ; then
+	usbdropdir="/usr/local/pcsc/drivers"
+fi
+AC_MSG_RESULT([enable USB drop directory     : $usbdropdir])
+AC_DEFINE_UNQUOTED(PCSCLITE_HP_DROPDIR, "$usbdropdir", [directory containing USB drivers])
+
+AC_ARG_ENABLE(debug,
+  AC_HELP_STRING([--enable-debug],[enable debug messages from pcscd]),
+[ case "${enableval}" in
+  yes)	
+    debug=true ;;
+  no)	
+    debug=false ;;
+  *) AC_MSG_ERROR([bad value ${enableval} for --enable-debug]) ;;
+ esac], [debug=true])
+
+AC_MSG_RESULT([enable debug messages         : $debug])
+
+if test x${debug} = xtrue ; then
+  AC_DEFINE(PCSC_DEBUG, 1, [enable full PCSC debug messaging.])
+  AC_DEFINE(MSC_DEBUG, 1, [enable full MuscleCard debug messaging.])
+fi
+
+dnl --enable-debugatr
+AC_ARG_ENABLE(debugatr,
+  AC_HELP_STRING([--enable-debugatr],[enable ATR debug messages from pcscd]),
+[ case "${enableval}" in
+  yes)	debugatr=true ;;
+  no)	debugatr=false ;;
+  *) AC_MSG_ERROR([bad value ${enableval} for --enable-debugatr]) ;;
+esac], [debugatr=false])
+
+AC_MSG_RESULT([enable ATR parsing messages   : $debugatr])
+
+if test x${debugatr} = xtrue ; then
+  AC_DEFINE(ATR_DEBUG, 1, [display ATR parsing debug messages.])
+fi
+
+dnl --enable-scf
+AC_ARG_ENABLE(scf,
+  AC_HELP_STRING([--enable-scf],[use SCF for reader support]),
+[ case "${enableval}" in
+  yes)	scf=true ;;
+  no)	scf=false ;;
+  *) AC_MSG_ERROR([bad value ${enableval} for --enable-scf]) ;;
+esac], [scf=false])
+
+AC_SUBST(LIBSMARTCARD)
+if test x$scf = xtrue -a x$ac_cv_header_smartcard_scf_h = xyes; then
+  AC_CHECK_LIB(smartcard, SCF_strerror, [LIBSMARTCARD="$LIBSMARTCARD -lsmartcard" scf=true], scf=false)
+else
+  scf=false
+fi
+AC_MSG_RESULT([enable SCF reader support     : $scf])
+AM_CONDITIONAL(HAVE_SCF, test x$scf = xtrue)
+
+dnl --disable-musclecard
+AC_ARG_ENABLE(musclecard,
+  AC_HELP_STRING([--disable-musclecard],[MuscleCard framework disabled]),
+[case "${enableval}" in
+  yes)	musclecard=true ;;
+  no)	musclecard=false ;;
+  *) AC_MSG_ERROR([bad value ${enableval} for --disable-musclecard]) ;;
+ esac], [musclecard=true])
+
+AC_MSG_RESULT([enable MuscleCard             : $musclecard])
+
+AM_CONDITIONAL(HAVE_MUSCLECARD, test x$musclecard = xtrue)
+
+dnl --enable-muscledropdir=DIR
+AC_ARG_ENABLE(muscledropdir,
+  AC_HELP_STRING([--enable-muscledropdir=DIR],[directory containing
+				  MuscleCard bundles (default /usr/local/pcsc/services)]),
+[muscledropdir="${enableval}"], [muscledropdir=false])
+if test x${muscledropdir} = xfalse ; then
+	muscledropdir="/usr/local/pcsc/services"
+fi
+AC_MSG_RESULT([enable MuscleCard bundles dir : $muscledropdir])
+AC_DEFINE_UNQUOTED(MSC_SVC_DROPDIR, "$muscledropdir", [directory containing MuscleCard bundles])
+
+dnl --enable-confdir=DIR
+AC_ARG_ENABLE(confdir,
+AC_HELP_STRING([--enable-confdir=DIR],[directory containing reader.conf
+				(default /etc)]),
+[confdir="${enableval}"], [confdir=false])
+
+if test x${confdir} != xfalse ; then
+	AC_MSG_RESULT([enable confdir                : $confdir])
+
+	AC_DEFINE_UNQUOTED(USE_READER_CONF, "$confdir", [directory containing reader.conf (default /etc)])
+else
+	confdir="/etc"
+	AC_MSG_RESULT([enable confdir                : /etc (default)])
+fi
+
+dnl --enable-runpid=FILE
+AC_ARG_ENABLE(runpid,
+  AC_HELP_STRING([--enable-runpid=FILE],[file containing pcscd pid]),
+[runpid="${enableval}"], [runpid=false])
+
+AC_MSG_RESULT([enable runpid                 : $runpid])
+
+if test x${runpid} != xfalse ; then
+	AC_DEFINE_UNQUOTED(USE_RUN_PID, "$runpid", [file containing pcscd pid])
+fi
+
+dnl --enable-ipcdir=DIR
+AC_ARG_ENABLE(ipcdir,
+  AC_HELP_STRING([--enable-ipcdir=DIR],[directory containing IPC files
+				  (default /var/run)]),
+[ipcdir="${enableval}"], [ipcdir=false])
+
+if test x${ipcdir} != xfalse ; then
+	AC_MSG_RESULT([enable ipcdir                 : $ipcdir])
+
+	AC_DEFINE_UNQUOTED(USE_IPCDIR, "$ipcdir", [directory containing IPC files (default /var/run)])
+else
+	AC_MSG_RESULT([enable ipcdir                 : /var/run (default)])
+fi
+
+AC_MSG_RESULT([enable threadsafe client      : $threadsafe])
+
+dnl --enable-extendedapdu
+AC_ARG_ENABLE(extendedapdu,
+	AC_HELP_STRING([--enable-extendedapdu], [support of extended APDU (for APDU  256B < size < 32KB)]),
+	[ case "${enableval}" in
+		yes) extendedapdu=true ;;
+		no) extendedapdu=false ;;
+		*) AC_MSG_ERROR([bad value ${enableval} for --enable-extendedapdu]) ;;
+	esac], [extendedapdu=false])
+
+AC_MSG_RESULT([enable extended APDU          : $extendedapdu])
+
+if test x${extendedapdu} = xtrue ; then
+  extended_apdu="#define PCSCLITE_ENHANCED_MESSAGING"
+else
+  extended_apdu="#undef PCSCLITE_ENHANCED_MESSAGING"
+fi
+
+dnl warning about pthread
+if test x${threadsafe} = xtrue ; then
+  AC_DEFINE(USE_THREAD_SAFETY, 1, [enable client side thread safety.])
+fi
+
+CPPFLAGS="-I\${top_srcdir}/src $CPPFLAGS"
+
+dnl Setup dist stuff
+AC_SUBST(muscledropdir)
+AC_SUBST(usbdropdir)
+AC_SUBST(confdir)
+AC_SUBST(runpid)
+AC_SUBST(extended_apdu)
+
+dnl Write Makefiles
+AC_OUTPUT([
+Makefile
+aclocal/Makefile
+doc/Makefile
+doc/bundleTool.8
+doc/pcscd.8
+doc/reader.conf.5
+doc/example/Makefile
+etc/Makefile
+etc/reader.conf
+src/Makefile
+src/libmusclecard.pc
+src/libpcsclite.pc
+src/PCSC/pcsclite.h
+src/utils/Makefile
+win32/Makefile
+])

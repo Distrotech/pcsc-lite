@@ -1,0 +1,11 @@
+#!/bin/sh
+
+##
+# Start PC/SC
+##
+
+. /etc/rc.common
+
+	ConsoleMessage "Starting Smartcard Services"
+	/usr/local/bin/pcscd
+

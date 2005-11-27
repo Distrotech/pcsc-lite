@@ -1,0 +1,18 @@
+#! /bin/sh
+
+# $Id$
+
+set -x
+
+if [ -e Makefile ]
+then
+  make distclean
+fi
+rm -f config.h.in
+aclocal -I build --output=build/aclocal.m4
+libtoolize --copy --force
+# cp -f ~/cvs/config/config.guess ~/cvs/config/config.sub build/
+autoheader
+automake --add-missing --copy --verbose
+autoconf --localdir=build --verbose
+

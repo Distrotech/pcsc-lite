@@ -1,0 +1,71 @@
+/* config.h.in.  Generated automatically from configure.in by autoheader 2.13.  */
+
+/* Define if you have the daemon function.  */
+#undef HAVE_DAEMON
+
+/* Define if you have the getopt_long function.  */
+#undef HAVE_GETOPT_LONG
+
+/* Define if you have the <getopt.h> header file.  */
+#undef HAVE_GETOPT_H
+
+/* Linux */
+#undef PCSC_TARGET_LINUX
+
+/* Linux */
+#undef MSC_TARGET_LINUX
+
+/* BSD */
+#undef PCSC_TARGET_BSD
+
+/* BSD */
+#undef MSC_TARGET_BSD
+
+/* OSX */
+#undef PCSC_TARGET_OSX
+
+/* OSX */
+#undef MSC_TARGET_OSX
+
+/* Solaris */
+#undef PCSC_TARGET_SOLARIS
+
+/* Solaris */
+#undef MSC_TARGET_SOLARIS
+
+/* HP-UX */
+#undef PCSC_TARGET_HPUX
+
+/* HP-UX */
+#undef MSC_TARGET_HPUX
+
+/* TRU64 */
+#undef PCSC_TARGET_TRU64
+
+/* TRU64 */
+#undef MSC_TARGET_TRU64
+
+/* directory containing USB drivers */
+#undef PCSCLITE_HP_DROPDIR
+
+/* enable full PCSC debug messaging. */
+#undef PCSC_DEBUG
+
+/* enable full musclecard debug messaging. */
+#undef MSC_DEBUG
+
+/* display ATR parsing debug messages. */
+#undef ATR_DEBUG
+
+/* directory containing MuscleCard bundles */
+#undef MSC_SVC_DROPDIR
+
+/* directory containing reader.conf (default /etc) */
+#undef USE_READER_CONF
+
+/* file containing pcscd pid */
+#undef USE_RUN_PID
+
+/* enable client side thread safety. */
+#undef USE_THREAD_SAFETY
+

@@ -1,0 +1,77 @@
+#!/bin/bash
+#
+# pcscd        Starts the pcscd daemon
+#
+#
+# chkconfig: 2345 12 88
+# description: PCSC Smart Card Daemon
+#
+# processname: pcscd
+# config: /etc/reader.conf
+
+. /etc/init.d/functions
+
+# Source config
+if [ -f /etc/sysconfig/pscsd ] ; then
+	. /etc/sysconfig/pcscd
+else
+	PCSCD_OPTIONS=""
+fi
+
+[ -f /usr/local/sbin/pcscd ] || exit 0
+
+
+
+# Source config
+PATH=/sbin:/bin:/usr/local/sbin:/usr/bin:/usr/sbin
+LD_LIBRARY_PATH=/usr/lib:/usr/local/lib
+
+umask 077
+
+start() {
+ 	echo -n $"Starting smart card daemon: "
+	daemon pcscd $PCSCD_OPTIONS
+	RETVAL=$?
+	echo
+	[ $RETVAL -eq 0 ] && touch /var/lock/subsys/pcscd
+	return $RETVAL
+}	
+stop() {
+	echo -n $"Shutting down smart card daemon: "
+	killproc pcscd
+	RETVAL=$?
+	echo
+	[ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/pcscd
+	return $RETVAL
+}
+rhstatus() {
+	status pcscd
+}
+restart() {
+	stop
+	start
+}	
+
+case "$1" in
+  start)
+  	start
+	;;
+  stop)
+  	stop
+	;;
+  status)
+  	rhstatus
+	;;
+  restart|reload)
+  	restart
+	;;
+  condrestart)
+  	[ -f /var/lock/subsys/pcscd ] && restart || :
+	;;
+  *)
+	echo $"Usage: $0 {start|stop|status|restart|condrestart}"
+	exit 1
+esac
+
+exit $?
+

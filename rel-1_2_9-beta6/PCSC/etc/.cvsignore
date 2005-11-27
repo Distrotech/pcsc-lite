@@ -1,0 +1,4 @@
+Makefile
+Makefile.in
+pcscd.init
+reader.conf
