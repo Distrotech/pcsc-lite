@@ -1,0 +1,19 @@
+#!/bin/sh
+
+# $Id$
+
+# I use
+# - autoconf (GNU Autoconf) 2.57
+# - automake (GNU automake) 1.7.3
+# - ltmain.sh (GNU libtool) 1.4.3 (1.922.2.111 2002/10/23 02:54:36)
+
+set -e
+set -x
+if test -f Makefile; then
+  make distclean
+fi
+rm -rf *.cache *.m4 build/{config.guess,config.sub,depcomp,ltmain.sh} config.log config.status
+(cat aclocal/*.m4 > acinclude.m4)
+autoreconf --verbose --install
+cp aclocal.m4 build/
+
