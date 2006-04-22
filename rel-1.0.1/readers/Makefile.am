@@ -1,0 +1,54 @@
+# $Id$
+
+EXTRA_DIST = \
+	ACR38U-CCID.txt \
+	ActivCardV2.txt \
+	ActivCardV3.txt \
+	ASEDrive_IIIe_KB.txt \
+	ASE_IIIe.txt \
+	AxaltoV3.txt \
+	CardMan3121.txt \
+	CardMan3621.txt \
+	CardMan3821.txt \
+	CardMan5125.txt \
+	CardMan6121.txt \
+	CherrySmartTerminalST2XXX.txt \
+	CherryST1044U.txt \
+	CherryXX33.txt \
+	CherryXX44.txt \
+	CryptoIdentity.txt \
+	DellSCRK.txt \
+	DellSK-3106.txt \
+	GemCoreSIMPro.txt \
+	GemPC433_SL.txt \
+	GemPC_Express.txt \
+	GemPCKey.txt \
+	GemPCPinpad.txt \
+	GemPCTwin.txt \
+	KAAN_Advanced.txt \
+	KAAN_Base.txt \
+	KAAN_SIM_III.txt \
+	LTC31.txt \
+	mIDentity.txt \
+	MySmartPad.txt \
+	Oz776S.txt \
+	SCR3310.txt \
+	SCR3311.txt \
+	SCR331-DI-NTTCom.txt \
+	SCR331-DI.txt \
+	SCR331.txt \
+	SCR3320.txt \
+	SCR333.txt \
+	SCR3340.txt \
+	SCR335.txt \
+	SCR355.txt \
+	SDI010.txt \
+	sid800.txt \
+	SIM_Pocket_Combo.txt \
+	SK-3106.txt \
+	SPR532.txt \
+	supported_readers.txt \
+	Verisign_secure_storage_token.txt \
+	Verisign_secure_token.txt \
+	Winbond.txt
+
