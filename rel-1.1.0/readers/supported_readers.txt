@@ -1,0 +1,95 @@
+# list of readers supported by the CCID driver
+# $Id$
+
+# Gemplus
+0x08E6:0x3437:Gemplus GemPC Twin
+0x08E6:0x3438:Gemplus GemPC Key
+0x08E6:0x4433:Gemplus GemPC433 SL
+0x08E6:0x3478:Gemplus GemPC Pinpad
+0x08E6:0x3479:Gemplus GemCore POS Pro
+0x08E6:0x3480:Gemplus GemCore SIM Pro
+0x08E6:0x34EC:Gemplus GemPC Express
+# Verisign branded
+0x08E6:0xACE0:Verisign Secure Token
+0x08E6:0x1359:VeriSign Secure Storage Token
+
+# SCM Microsystems
+0x04E6:0x5111:SCM SCR 331-DI
+0x04E6:0x5113:SCM SCR 333
+0x04E6:0x5115:SCM SCR 335
+0x04E6:0x5116:SCM SCR 3310
+0x04E6:0x5117:SCM SCR 3320
+0x04E6:0x5119:SCM SCR 3340 ExpressCard54
+0x04E6:0x511A:SCM SCR 3310 NTTCom
+0x04E6:0x511C:Axalto Reflex USB v3
+0x04E6:0x511D:SCM SCR 3311
+0x04E6:0x5120:SCM SCR 331-DI NTTCom
+0x04E6:0x5121:SCM SDI 010
+0x04E6:0xE001:SCM SCR 331
+0x04E6:0x5410:SCM SCR 355
+0x04E6:0xE003:SCM SPR 532
+
+# OmniKey
+0x076B:0x3021:OmniKey CardMan 3121
+0x076B:0x3621:OmniKey CardMan 3621
+0x076B:0x3821:OmniKey CardMan 3821
+0x076B:0x5121:OmniKey CardMan 5125
+0x076B:0x6622:OmniKey CardMan 6121
+
+# C3PO
+0x0783:0x0003:C3PO LTC31
+0x0783:0x0006:C3PO LTC31
+
+# ActivCard
+0x09C3:0x0008:ActivCard USB Reader 2.0
+0x09C3:0x0013:ActivCard USB Reader 3.0
+0x09C3:0x0014:Activkey Sim
+
+# Silitek
+0x047B:0x020B:Silitek SK-3105
+
+# Dell
+0x413c:0x2100:Dell keyboard SK-3106
+0x413c:0X2101:Dell smart card reader keyboard
+
+# Cherry
+0x046a:0x0005:Cherry XX33
+0x046a:0x0010:Cherry XX44
+0x046a:0x002D:Cherry ST1044U
+0x046a:0x003E:Cherry SmartTerminal ST-2XXX
+
+# Advanced Card Systems
+0x072f:0x90cc:ACS ACR 38U-CCID
+
+# O2 Micro
+0x0b97:0x7762:O2 Micro Oz776
+
+# Kobil
+0x0D46:0x3001:KOBIL KAAN Base
+0x0D46:0x3002:KOBIL KAAN Advanced
+0x0d46:0x3003:KOBIL KAAN SIM III
+0x0d46:0x4000:KOBIL mIDentity
+
+# Eutron
+0x073D:0x0C00:Eutron SIM Pocket Combo
+0x073D:0x0007:Eutron CryptoIdentity
+
+# Athena
+0x0DC3:0x1004:Athena ASE IIIe
+0x0DC3:0x1102:Athena ASEDrive IIIe KB
+
+# SmartEpad
+0x09BE:0x0002:SmartEpad
+
+# Winbond Electronics (for OEM only so the name may be different)
+0x0416:0x3815:Winbond
+
+# HP
+0x03F0:0x1024:HP USB Smart Card Keyboard
+
+# id3 Semiconductors
+0x0B81:0x0200:id3 CL1356D
+
+# Alcor Micro Corp.
+0x058F:0x9520:Alcor Micro AU9520
+
