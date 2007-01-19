@@ -1,0 +1,28 @@
+- do not use an active polling in hotplug_libusb.c (USB devices scanned
+  every 1 second) but use a udev trigger mechanism or something similar
+  (mimic hotplug_macosx.c)
+  See https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=205182
+
+- improve performances between pcscd and libpcsclite
+  see http://archives.neohapsis.com/archives/dev/muscle/2005-q4/0086.html
+
+- include Apple patches and improvements (if possible/needed)
+
+- Allow connection from a 32-bits and 64-bits client to the same pcscd
+  server. This is part of the Apple patches and improvements.
+  see Alioth bug #303790
+
+- power on the card _only_ if an application requests a connection
+  see Alioth bug #301965
+
+- use a callback from IFD handler to pcscd instead of polling to get the
+  card status: better performance, possible lower power consumption
+
+- allow to have pcscd and libpcsclite on two different machines.
+  That would be needed to support remote PAM login.
+  Maybe use unix2tcp (http://dizzy.roedu.net/unix2tcp/)
+
+- manage power suspend/resume (in a laptop for example) and coordinate
+  with the driver (when/if possible)
+
+Nov 2006
