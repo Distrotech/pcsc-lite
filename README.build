@@ -7,7 +7,7 @@ run under the security constraints of Solaris Trusted Extensions and
 Solaris Zones.
 
 For more information about the re-design, please see the file
-SECURITY_SCALABILITY_ENHANCEMENTS.pdf in this branch.
+scalability_security_enhancements.pdf in this branch.
 
 PREPARING THE SOLARIS 10 BUILD MACHINE:
 --------------------------------------
@@ -15,7 +15,7 @@ PREPARING THE SOLARIS 10 BUILD MACHINE:
 This workspace is setup to build the package "SolarisPCSC" on a 
 Solaris 10 system.   The hope is that this code will ultimately be
 merged back into the trunk, but there is some work involved in doing
-that as is explained in SECURITY_SCALABILITY_ENHANCEMENTS.pdf.
+that as is explained in scalability_security_enhancements.pdf.
 
 To build with the pre-set configuration provided in this workspace
 in the buildenv folder, the following need to be present on the build
