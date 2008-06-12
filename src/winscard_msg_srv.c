@@ -34,9 +34,12 @@
 #ifdef HAVE_SYS_FILIO_H
 #include <sys/filio.h>
 #endif
-
+#ifdef HAVE_SYS_DOOR_H
+#include <door.h>
+#endif
 #include "misc.h"
 #include "pcsclite.h"
+#include "pcsc_config.h"
 #include "winscard.h"
 #include "debuglog.h"
 #include "winscard_msg.h"
@@ -96,60 +99,102 @@ static int SHMProcessCommonChannelRequest(PDWORD pdwClientID)
 /**
  * @brief Prepares the communication channel used by the server to talk to the
  * clients.
- *
+ *  
  * This is called by the server to create a socket for local IPC with the
- * clients. The socket is associated to the file \c PCSCLITE_CSOCK_NAME.
+ * clients. The socket is associated to the file \c PCSCLITE_CSOCK_NAME by default
+ * but this can be overridden in the global configuration file pcscd.conf, and
+ * affected by the -b or INSTANCE_BASE_DIR key-value setting in pcscd.conf
+ *
  * Each client will open a connection to this socket.
  * 
  * @return Error code.
  * @retval 0 Success
  * @retval -1 Can not create the socket.
- * @retval -1 Can not bind the socket to the file \c PCSCLITE_CSOCK_NAME.
+ * @retval -1 Can not bind the socket to the file
  * @retval -1 Can not put the socket in listen mode.
  */
 INTERNAL int SHMInitializeCommonSegment(void)
 {
-	static struct sockaddr_un serv_adr;
+        switch(pcscCfg.transportType) {
+        case SOCKET_UNIX: {
+        	static struct sockaddr_un serv_adr;
 
-	/*
-	 * Create the common shared connection socket 
-	 */
-	if ((commonSocket = socket(AF_UNIX, SOCK_STREAM, 0)) < 0)
-	{
-		Log2(PCSC_LOG_CRITICAL, "Unable to create common socket: %s",
-			strerror(errno));
-		return -1;
-	}
+	        /*
+	         * Create the common shared connection socket 
+	         */
+	        if ((commonSocket = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+        		Log2(PCSC_LOG_CRITICAL, "Unable to create common socket: %s",
+	                    strerror(errno));
+		        return -1;
+	        }
 
-	serv_adr.sun_family = AF_UNIX;
-	strncpy(serv_adr.sun_path, PCSCLITE_CSOCK_NAME,
-		sizeof(serv_adr.sun_path));
-	SYS_Unlink(PCSCLITE_CSOCK_NAME);
+	        serv_adr.sun_family = AF_UNIX;
+	        strncpy(serv_adr.sun_path, pcscCfg.netBindFile,
+        		sizeof(serv_adr.sun_path));
+        	
+                SYS_Unlink(pcscCfg.netBindFile);
 
-	if (bind(commonSocket, (struct sockaddr *) &serv_adr,
-			sizeof(serv_adr.sun_family) + strlen(serv_adr.sun_path) + 1) < 0)
-	{
-		Log2(PCSC_LOG_CRITICAL, "Unable to bind common socket: %s",
-			strerror(errno));
-		SHMCleanupSharedSegment(commonSocket, PCSCLITE_CSOCK_NAME);
-		return -1;
-	}
+        	if (bind(commonSocket, (struct sockaddr *) &serv_adr,
+		    sizeof(serv_adr.sun_family) + strlen(serv_adr.sun_path) + 1) < 0) {
+        		Log2(PCSC_LOG_CRITICAL, "Unable to bind common socket: %s",
+	        	    strerror(errno));
+		        SHMCleanupSharedSegment(commonSocket, pcscCfg.netBindFile);
+		        return -1;
+	        }
 
-	if (listen(commonSocket, 1) < 0)
-	{
-		Log2(PCSC_LOG_CRITICAL, "Unable to listen common socket: %s",
-			strerror(errno));
-		SHMCleanupSharedSegment(commonSocket, PCSCLITE_CSOCK_NAME);
-		return -1;
-	}
+	        if (listen(commonSocket, 1) < 0)  {
+		        Log2(PCSC_LOG_CRITICAL, "Unable to listen common socket: %s",
+			   strerror(errno));
+		        SHMCleanupSharedSegment(commonSocket, pcscCfg.netBindFile);
+		        return -1;
+	        }
 
-	/*
-	 * Chmod the public entry channel 
-	 */
-	SYS_Chmod(PCSCLITE_CSOCK_NAME, S_IRWXO | S_IRWXG | S_IRWXU);
+	        /*
+	         * Chmod the public entry channel 
+	         */
+	        SYS_Chmod(pcscCfg.netBindFile, S_IRWXO | S_IRWXG | S_IRWXU);
 
-	return 0;
+                return 0;
+        }
+        case SOCKET_INETV4: {
+                union {
+                     struct sockaddr s;
+                     struct sockaddr_in i;
+                } serv_adr;
+                
+                /*
+	         * Create the common shared connection socket 
+	         */
+	        if ((commonSocket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        		Log2(PCSC_LOG_CRITICAL, "Unable to create common socket: %s",
+	                    strerror(errno));
+		        return -1;
+	        }
+
+                serv_adr.i.sin_family = AF_INET;
+                serv_adr.i.sin_port = htons(pcscCfg.portNbr);
+                serv_adr.i.sin_addr.s_addr = INADDR_ANY;
+                
+        	if (bind(commonSocket, (struct sockaddr *) &serv_adr,sizeof(serv_adr)) < 0) {
+        		Log2(PCSC_LOG_CRITICAL, "Unable to bind common socket: %s",
+	        	    strerror(errno));
+		        SHMCleanupSharedSegment(commonSocket, pcscCfg.netBindFile);
+		        return -1;
+	        }
+	        
+                if (listen(commonSocket, 1) < 0)  {
+		        Log2(PCSC_LOG_CRITICAL, "Unable to listen common socket: %s",
+			   strerror(errno));
+		        SHMCleanupSharedSegment(commonSocket, pcscCfg.netBindFile);
+		        return -1;
+	        }
+                return 0;
+          }
+        }
+        return -1;
 }
+
+
 
 /**
  * @brief Looks for messages sent by clients.
@@ -167,114 +212,163 @@ INTERNAL int SHMInitializeCommonSegment(void)
  */
 INTERNAL int SHMProcessEventsServer(PDWORD pdwClientID, int blocktime)
 {
-	fd_set read_fd;
-	int selret;
-	struct timeval tv;
 	
-	tv.tv_sec = 1;
-	tv.tv_usec = 0;
+       fd_set read_fd;
+       int selret;
+       struct timeval tv;
 
-	FD_ZERO(&read_fd);
+       tv.tv_sec = 1;
+       tv.tv_usec = 0;
 
-	/*
-	 * Set up the bit masks for select 
-	 */
-	FD_SET(commonSocket, &read_fd);
+       FD_ZERO(&read_fd);
 
-	selret = select(commonSocket + 1, &read_fd, (fd_set *) NULL,
-		(fd_set *) NULL, &tv);
+       /*
+        * Set up the bit masks for select 
+        */
+       FD_SET(commonSocket, &read_fd);
 
-	if (selret < 0)
-	{
-		if ((!AraKiri) && (!ReCheckSerialReaders))
-			Log2(PCSC_LOG_CRITICAL, "Select returns with failure: %s",
-				strerror(errno));
-		return -1;
-	}
+       selret = select(commonSocket + 1, &read_fd, (fd_set *) NULL,
+               (fd_set *) NULL, &tv);
 
-	if (selret == 0)
-		/* timeout */
-		return 2;
-	/*
-	 * A common pipe packet has arrived - it could be a new application  
-	 */
-	if (FD_ISSET(commonSocket, &read_fd))
-	{
-		Log1(PCSC_LOG_DEBUG, "Common channel packet arrival");
-		if (SHMProcessCommonChannelRequest(pdwClientID) == -1)
-		{
-			Log2(PCSC_LOG_ERROR,
-				"error in SHMProcessCommonChannelRequest: %d", *pdwClientID);
-			return -1;
-		} else
-		{
-			Log2(PCSC_LOG_DEBUG,
-				"SHMProcessCommonChannelRequest detects: %d", *pdwClientID);
-			return 0;
-		}
-	}
-	
-	return -1;
+       if (selret < 0)
+       {
+               if ((!AraKiri) && (!ReCheckSerialReaders))
+                       Log2(PCSC_LOG_CRITICAL, "Select returns with failure: %s",
+                               strerror(errno));
+               return -1;
+       }
+
+       if (selret == 0)
+               /* timeout */
+               return 2;
+       /*
+        * A common pipe packet has arrived - it could be a new application  
+        */
+       if (FD_ISSET(commonSocket, &read_fd))
+       {
+               Log1(PCSC_LOG_DEBUG, "Common channel packet arrival");
+               if (SHMProcessCommonChannelRequest(pdwClientID) == -1)
+               {
+                       Log2(PCSC_LOG_ERROR,
+                            "error in SHMProcessCommonChannelRequest: %d", 
+                            *pdwClientID);
+                       return -1;
+               } else
+               {
+                       Log2(PCSC_LOG_DEBUG,
+                            "SHMProcessCommonChannelRequest detects: %d", 
+                            *pdwClientID);
+                       return 0;
+               }
+       }
+       return -1;
 }
 
+INTERNAL char *getRPCname(int rpcIndex) 
+{
+	switch(rpcIndex) {
+        case SCARD_ESTABLISH_CONTEXT:
+		return "ESTABLISH_CONTEXT";
+	case SCARD_RELEASE_CONTEXT:
+		return "RELEASE_CONTEXT";
+	case SCARD_CONNECT:
+		return "CONNECT";
+	case SCARD_RECONNECT:
+		return "RECONNECT";
+	case SCARD_DISCONNECT:
+		return "DISCONNECT";
+	case SCARD_BEGIN_TRANSACTION:
+		return "BEGIN_TRANSACTION";
+	case SCARD_END_TRANSACTION:
+		return "END_TRANSACTION";
+	case SCARD_CANCEL_TRANSACTION:
+		return "CANCEL_TRANSACTION";
+	case SCARD_STATUS:
+		return "STATUS";
+	case SCARD_TRANSMIT:
+		return "TRANSMIT";
+	case SCARD_CONTROL:
+		return "CONTROL";
+	case SCARD_GET_ATTRIB:
+		return "GET_ATTRIB";
+	case SCARD_SET_ATTRIB:
+		return "SET_ATTRIB";
+	case SCARD_TRANSMIT_EXTENDED:
+		return "TRANSMIT_EXTENDED";
+	default:
+		return "UNKNOWN";
+	}
+
+}
 /**
  * @brief 
  *
  * Called by \c ContextThread().
  */
-INTERNAL int SHMProcessEventsContext(PDWORD pdwClientID, psharedSegmentMsg msgStruct, int blocktime)
+INTERNAL int SHMProcessEventsContext(PDWORD pdwClientID, DWORD dwContextIndex,
+                                     psharedSegmentMsg msgStruct, int blocktime)
 {
-	fd_set read_fd;
-	int selret, rv;
-	struct timeval tv;
+       fd_set read_fd;
+       int selret, rv;
+       struct timeval tv;
 
-	tv.tv_sec = 1;
-	tv.tv_usec = 0;
+       tv.tv_sec = 1;
+       tv.tv_usec = 0;
 
-	FD_ZERO(&read_fd);
-	FD_SET(*pdwClientID, &read_fd);
+       FD_ZERO(&read_fd);
+       FD_SET(*pdwClientID, &read_fd);
 
-	selret = select(*pdwClientID + 1, &read_fd, (fd_set *) NULL,
-		(fd_set *) NULL, &tv);
+       selret = select(*pdwClientID + 1, &read_fd, (fd_set *) NULL,
+               (fd_set *) NULL, &tv);
+       if (selret < 0)
+       {
+               Log3(PCSC_LOG_ERROR, "Error from select() on fd=%d: %s",
+                       *pdwClientID, strerror(errno));
+               return -1;
+       }                                      
 
-	if (selret < 0)
-	{
-		Log2(PCSC_LOG_ERROR, "select returns with failure: %s",
-			strerror(errno));
-		return -1;
-	}
+       if (selret == 0) 
+               /* timeout */
+               return 2;
+       if (FD_ISSET(*pdwClientID, &read_fd))
+       {
+               /*
+                * Return the current handle 
+                */
+               rv = SHMMessageReceive(msgStruct, sizeof(*msgStruct), *pdwClientID,
+                                      PCSCLITE_SERVER_ATTEMPTS);		
+               if (rv == -1)
+               {	/* The client has died */
+                       Log3(PCSC_LOG_DEBUG, "Client fd=%d died:\n %s",
+                               *pdwClientID, strerror(errno));
+                       msgStruct->mtype = CMD_CLIENT_DIED;
+                       msgStruct->command = 0;
+ /**** PKK: ERROR this redundance close with MSGCleanupClient() is bad 
+  **** When this close() happens it allows accept() or ioctl( .. RECVFD ..)
+  **** to be assigned the new fd.  If a new SCardEstablishContext() is comming
+  **** along in between this close and the next that will be following shortly
+  **** the SCardEstablishContext() thread will get trashed, rarely and 
+  **** intermittantly, unless there is very heavy traffic as is the case
+  **** with SRC */
+//		       SYS_CloseFile(*pdwClientID);
+                       return 0;
+               }
 
-	if (selret == 0)
-		/* timeout */
-		return 2;
-
-	if (FD_ISSET(*pdwClientID, &read_fd))
-	{
-		/*
-		 * Return the current handle 
-		 */
-		rv = SHMMessageReceive(msgStruct, sizeof(*msgStruct), *pdwClientID,
-				       PCSCLITE_SERVER_ATTEMPTS);
-		
-		if (rv == -1)
-		{	/* The client has died */
-			Log2(PCSC_LOG_DEBUG, "Client has disappeared: %d",
-				*pdwClientID);
-			msgStruct->mtype = CMD_CLIENT_DIED;
-			msgStruct->command = 0;
-			SYS_CloseFile(*pdwClientID);
-
-			return 0;
-		}
-		
-		/*
-		 * Set the identifier handle 
-		 */
-		Log2(PCSC_LOG_DEBUG, "correctly processed client: %d",
-			*pdwClientID);
-		return 1;
-	}
-	
-	return -1;
+               switch(msgStruct->mtype) {
+               case CMD_FETCH:
+                       return 1;  /* Return without logging a message */
+	       case CMD_VERSION:
+		       Log2(PCSC_LOG_DEBUG, 
+			       "Version request OK (Client fd=%d)", 
+			       *pdwClientID);
+		       return 1;
+	       case CMD_FUNCTION:
+		       Log3(PCSC_LOG_DEBUG, 
+				"RPC OK for client %d: %s", 
+					*pdwClientID, getRPCname(msgStruct->command));
+                       return 1;
+               }
+       }
+       return -1;
 }
 

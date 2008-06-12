@@ -1,78 +1,92 @@
 /*
- * MUSCLE SmartCard Development ( http://www.linuxnet.com )
- *
- * Copyright (C) 1999-2004
- *  David Corcoran <corcoran@linuxnet.com>
- * Copyright (C) 1999-2005
- *  Ludovic Rousseau <ludovic.rousseau@free.fr>
- *
- * $Id: debuglog.h 1835 2006-01-25 10:42:23Z rousseau $
+    debug.h: log (or not) messages using syslog
+    Copyright (C) 2003-2005   Ludovic Rousseau
+
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307  USA
+*/
+
+/*
+ * $Id: debug.h 1702 2005-11-07 15:41:47Z rousseau $
  */
 
-/**
- * @file
- * @brief This handles debugging.
+/*
+ * DEBUG_CRITICAL("text");
+ * 	log "text" if (LogLevel & DEBUG_LEVEL_CRITICAL) is TRUE
  *
- * @note log message is sent to syslog or stderr depending on --foreground
- * command line argument
+ * DEBUG_CRITICAL2("text: %d", 1234);
+ *  log "text: 1234" if (DEBUG_LEVEL_CRITICAL & DEBUG_LEVEL_CRITICAL) is TRUE
+ * the format string can be anything printf() can understand
+ * 
+ * same thing for DEBUG_INFO, DEBUG_COMM and DEBUG_PERIODIC
  *
- * @test
- * @code
- * Log1(priority, "text");
- *  log "text" with priority level priority
- * Log2(priority, "text: %d", 1234);
- *  log "text: 1234"
- * the format string can be anything printf() can understand
- * Log3(priority, "text: %d %d", 1234, 5678);
- *  log "text: 1234 5678"
- * the format string can be anything printf() can understand
- * LogXxd(priority, msg, buffer, size);
- *  log "msg" + a hex dump of size bytes of buffer[]
- * @endcode
+ * DEBUG_XXD(msg, buffer, size);
+ *  log a dump of buffer if (LogLevel & DEBUG_LEVEL_COMM) is TRUE
+ *
  */
-
-#ifndef __debug_h__
-#define __debug_h__
-
-#ifdef PCSC
-/* use syslog, etc. if we are included from a file for pcscd */
-#include "debuglog.h"
-#else
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
-enum {
-	PCSC_LOG_DEBUG = 0,
-	PCSC_LOG_INFO,
-	PCSC_LOG_ERROR,
-	PCSC_LOG_CRITICAL
-};
-
-#include <stdio.h>
+ 
+#ifndef _GCDEBUG_H_
+#define  _GCDEBUG_H_
 
 /* You can't do #ifndef __FUNCTION__ */
 #if !defined(__GNUC__) && !defined(__IBMC__)
 #define __FUNCTION__ ""
 #endif
 
-#define Log0(priority) log_msg(priority, "%s:%d:%s()", __FILE__, __LINE__, __FUNCTION__)
-#define Log1(priority, fmt) log_msg(priority, "%s:%d:%s() " fmt, __FILE__, __LINE__, __FUNCTION__)
-#define Log2(priority, fmt, data) log_msg(priority, "%s:%d:%s() " fmt, __FILE__, __LINE__, __FUNCTION__, data)
-#define Log3(priority, fmt, data1, data2) log_msg(priority, "%s:%d:%s() " fmt, __FILE__, __LINE__, __FUNCTION__, data1, data2)
-#define LogXxd(priority, msg, buffer, size) log_xxd(priority, msg, buffer, size)
+extern int LogLevel;
 
-void log_msg(const int priority, const char *fmt, ...);
-void log_xxd(const int priority, const char *msg,
-	const unsigned char *buffer, const int size);
+#define DEBUG_LEVEL_CRITICAL 1
+#define DEBUG_LEVEL_INFO     2
+#define DEBUG_LEVEL_COMM     4
+#define DEBUG_LEVEL_PERIODIC 8
 
-#ifdef __cplusplus
-}
+#include <debuglog.h>	/* from pcsc-lite */
+
+/* DEBUG_CRITICAL */
+#define DEBUG_CRITICAL(fmt) if (LogLevel & DEBUG_LEVEL_CRITICAL) Log1(PCSC_LOG_CRITICAL, fmt)
+
+#define DEBUG_CRITICAL2(fmt, data) if (LogLevel & DEBUG_LEVEL_CRITICAL) Log2(PCSC_LOG_CRITICAL, fmt, data)
+
+#define DEBUG_CRITICAL3(fmt, data1, data2) if (LogLevel & DEBUG_LEVEL_CRITICAL) Log3(PCSC_LOG_CRITICAL, fmt, data1, data2)
+
+#define DEBUG_CRITICAL4(fmt, data1, data2, data3) if (LogLevel & DEBUG_LEVEL_CRITICAL) Log4(PCSC_LOG_CRITICAL, fmt, data1, data2, data3)
+
+/* DEBUG_INFO */
+#define DEBUG_INFO(fmt) if (LogLevel & DEBUG_LEVEL_INFO) Log1(PCSC_LOG_INFO, fmt)
+
+#define DEBUG_INFO2(fmt, data) if (LogLevel & DEBUG_LEVEL_INFO) Log2(PCSC_LOG_INFO, fmt, data)
+
+#define DEBUG_INFO3(fmt, data1, data2) if (LogLevel & DEBUG_LEVEL_INFO) Log3(PCSC_LOG_INFO, fmt, data1, data2)
+
+#define DEBUG_INFO4(fmt, data1, data2, data3) if (LogLevel & DEBUG_LEVEL_INFO) Log4(PCSC_LOG_INFO, fmt, data1, data2, data3)
+
+/* DEBUG_PERIODIC */
+#define DEBUG_PERIODIC(fmt) if (LogLevel & DEBUG_LEVEL_PERIODIC) Log1(PCSC_LOG_DEBUG, fmt)
+
+#define DEBUG_PERIODIC2(fmt, data) if (LogLevel & DEBUG_LEVEL_PERIODIC) Log2(PCSC_LOG_DEBUG, fmt, data)
+
+/* DEBUG_COMM */
+#define DEBUG_COMM(fmt) if (LogLevel & DEBUG_LEVEL_COMM) Log1(PCSC_LOG_DEBUG, fmt)
+
+#define DEBUG_COMM2(fmt, data) if (LogLevel & DEBUG_LEVEL_COMM) Log2(PCSC_LOG_DEBUG, fmt, data)
+
+#define DEBUG_COMM3(fmt, data1, data2) if (LogLevel & DEBUG_LEVEL_COMM) Log3(PCSC_LOG_DEBUG, fmt, data1, data2)
+
+#define DEBUG_COMM4(fmt, data1, data2, data3) if (LogLevel & DEBUG_LEVEL_COMM) Log4(PCSC_LOG_DEBUG, fmt, data1, data2, data3)
+
+/* DEBUG_XXD */
+#define DEBUG_XXD(msg, buffer, size) if (LogLevel & DEBUG_LEVEL_COMM) log_xxd(PCSC_LOG_DEBUG, msg, buffer, size)
+
 #endif
-
-#endif
-
-#endif							/* __debug_h__ */
 

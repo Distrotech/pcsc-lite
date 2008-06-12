@@ -35,6 +35,7 @@
 
 #undef DEBUG_HOTPLUG
 
+#define	AUTHSVCNAME	"MacOS_USB"
 char ReCheckSerialReaders = FALSE;
 
 /*
@@ -307,8 +308,6 @@ static HPDriverVector HPDriversGetFromDirectory(const char *driverBundlePath)
 				CFStringGetSystemEncoding()), NULL, 16);
 
 			strValue = (CFStringRef) CFDictionaryGetValue(dict,
-				CFSTR(PCSCLITE_HP_NAMEKEY_NAME));
-			if (!strValue)
 			{
 				Log1(PCSC_LOG_ERROR, "error getting product friendly name from bundle");
 				driverBundle->m_friendlyName = strdup("unnamed device");
@@ -763,7 +762,7 @@ LONG HPSearchHotPluggables(void)
 
 			RFAddReader(a->m_driver->m_friendlyName,
 				PCSCLITE_HP_BASE_PORT + a->m_address, a->m_driver->m_libPath,
-				deviceName);
+				deviceName, AUTHSVCNAME);
 		}
 	}
 

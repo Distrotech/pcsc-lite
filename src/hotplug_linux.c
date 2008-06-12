@@ -38,6 +38,7 @@
 #include "hotplug.h"
 
 #define PCSCLITE_USB_PATH		"/proc/bus/usb"
+#define AUTHSVCNAME			"Linux_USB"
 
 #define FALSE			0
 #define TRUE			1
@@ -107,9 +108,9 @@ LONG HPReadBundleValues(void)
 
 	if (hpDir == NULL)
 	{
-		Log1(PCSC_LOG_INFO,
+		Log1(PCSC_LOG_DEBUG,
 			"Cannot open PC/SC drivers directory: " PCSCLITE_HP_DROPDIR);
-		Log1(PCSC_LOG_INFO, "Disabling USB support for pcscd.");
+		Log1(PCSC_LOG_DEBUG, "Disabling USB support for pcscd.");
 		return -1;
 	}
 
@@ -181,9 +182,9 @@ end:
 
 	if (bundleSize == 0)
 	{
-		Log1(PCSC_LOG_INFO,
+		Log1(PCSC_LOG_DEBUG,
 			"No bundle files in pcsc drivers directory: " PCSCLITE_HP_DROPDIR);
-		Log1(PCSC_LOG_INFO, "Disabling USB support for pcscd");
+		Log1(PCSC_LOG_DEBUG, "Disabling USB support for pcscd");
 	}
 
 	closedir(hpDir);
@@ -365,7 +366,7 @@ void HPEstablishUSBNotifications(void)
 		{
 			int retval;
 
-			Log1(PCSC_LOG_INFO, "Hotplug stopped");
+			Log1(PCSC_LOG_DEBUG, "Hotplug stopped");
 			pthread_exit(&retval);
 		}
 
@@ -405,7 +406,7 @@ LONG HPAddHotPluggable(int i, unsigned long usbAddr)
 	/* NOTE: The deviceName is an empty string "" until someone implements
 	 * the code to get it */
 	RFAddReader(bundleTracker[i].readerName, PCSCLITE_HP_BASE_PORT + usbAddr,
-		bundleTracker[i].libraryPath, "");
+		bundleTracker[i].libraryPath, "", AUTHSVCNAME);
 
 	return 1;
 }	/* End of function */

@@ -43,10 +43,8 @@ INTERNAL int DYN_LoadLibrary(void **pvLHandle, char *pcLibrary)
 INTERNAL int DYN_CloseLibrary(void **pvLHandle)
 {
 	int ret;
-
 	ret = dlclose(*pvLHandle);
 	*pvLHandle = NULL;
-
 	if (ret)
 	{
 		Log2(PCSC_LOG_CRITICAL, "%s", dlerror());

@@ -38,7 +38,9 @@
 #include "sys_generic.h"
 #include "hotplug.h"
 
-#undef DEBUG_HOTPLUG
+/*#define DEBUG_HOTPLUG*/
+
+#define AUTHSVCNAME		"CCID"
 #define ADD_SERIAL_NUMBER
 
 #define BUS_DEVICE_STRSIZE	256
@@ -64,7 +66,6 @@ static struct _driverTracker
 {
 	long manuID;
 	long productID;
-
 	char *bundleName;
 	char *libraryPath;
 	char *readerName;
@@ -77,6 +78,7 @@ static struct _driverTracker
 static struct _readerTracker
 {
 	char status;
+	struct usb_device *libusbdev;
 	char bus_device[BUS_DEVICE_STRSIZE];	/* device name */
 	char *fullName;	/* full reader name (including serial number) */
 
@@ -98,6 +100,7 @@ LONG HPReadBundleValues(void)
 	char keyValue[TOKEN_MAX_VALUE_SIZE];
 	int listCount = 0;
 
+	Log1(PCSC_LOG_DEBUG, "HPReadBundleValues(): Drop Dir: " PCSCLITE_HP_DROPDIR);
 	hpDir = opendir(PCSCLITE_HP_DROPDIR);
 
 	if (hpDir == NULL)
@@ -168,7 +171,7 @@ LONG HPReadBundleValues(void)
 				}
 
 #ifdef DEBUG_HOTPLUG
-					Log2(PCSC_LOG_INFO, "Found driver for: %s",
+					Log2(PCSC_LOG_DEBUG, "Found driver for: %s",
 						driverTracker[listCount].readerName);
 #endif
 
@@ -182,7 +185,7 @@ LONG HPReadBundleValues(void)
 					/* increase the array size */
 					driverSize += DRIVER_TRACKER_SIZE_STEP;
 #ifdef DEBUG_HOTPLUG
-					Log2(PCSC_LOG_INFO,
+					Log2(PCSC_LOG_DEBUG,
 						"Increase driverTracker to %d entries", driverSize);
 #endif
 					driverTracker = realloc(driverTracker,
@@ -214,13 +217,13 @@ LONG HPReadBundleValues(void)
 	rv = TRUE;
 	if (driverSize == 0)
 	{
-		Log1(PCSC_LOG_INFO, "No bundle files in pcsc drivers directory: " PCSCLITE_HP_DROPDIR);
-		Log1(PCSC_LOG_INFO, "Disabling USB support for pcscd");
+		Log1(PCSC_LOG_DEBUG, "No bundle files in pcsc drivers directory: " PCSCLITE_HP_DROPDIR);
+		Log1(PCSC_LOG_DEBUG, "Disabling USB support for pcscd");
 		rv = FALSE;
 	}
 #ifdef DEBUG_HOTPLUG
 	else
-		Log2(PCSC_LOG_INFO, "Found drivers for %d readers", listCount);
+		Log2(PCSC_LOG_DEBUG, "Found drivers for %d readers", listCount);
 #endif
 
 	return rv;
@@ -234,6 +237,9 @@ void HPEstablishUSBNotifications(void)
 	char bus_device[BUS_DEVICE_STRSIZE];
 
 	usb_init();
+#ifdef DEBUG_HOTPLUG
+	putenv("SUN_LIBUSBUT_DEBUG=4");
+#endif
 	while (1)
 	{
 		usb_find_busses();
@@ -246,7 +252,7 @@ void HPEstablishUSBNotifications(void)
 		/* For each USB bus */
 		for (bus = usb_get_busses(); bus; bus = bus->next)
 		{
-			/* For each USB device */
+			/* For each UƒSB device */
 			for (dev = bus->devices; dev; dev = dev->next)
 			{
 				/* check if the device is supported by one driver */
@@ -262,23 +268,23 @@ void HPEstablishUSBNotifications(void)
 						snprintf(bus_device, BUS_DEVICE_STRSIZE, "%s:%s",
 							bus->dirname, dev->filename);
 						bus_device[BUS_DEVICE_STRSIZE - 1] = '\0';
-#ifdef DEBUG_HOTPLUG
+//#ifdef DEBUG_HOTPLUG
 						Log2(PCSC_LOG_DEBUG, "Found matching USB device: %s", bus_device);
-#endif
+//#endif
 						newreader = TRUE;
 
 						/* Check if the reader is a new one */
 						for (j=0; j<PCSCLITE_MAX_READERS_CONTEXTS; j++)
 						{
-							if (strncmp(readerTracker[j].bus_device,
-								bus_device, BUS_DEVICE_STRSIZE) == 0)
-							{
+							if ((strncmp(readerTracker[j].bus_device,
+							    bus_device, BUS_DEVICE_STRSIZE) == 0) &&
+							    readerTracker[j].libusbdev == dev) {
 								/* The reader is already known */
 								readerTracker[j].status = READER_PRESENT;
 								newreader = FALSE;
-#ifdef DEBUG_HOTPLUG
+//#ifdef DEBUG_HOTPLUG
 								Log2(PCSC_LOG_DEBUG, "Refresh USB device: %s", bus_device);
-#endif
+//#endif
 								break;
 							}
 						}
@@ -358,7 +364,7 @@ void HPEstablishUSBNotifications(void)
 			}
 			free(driverTracker);
 
-			Log1(PCSC_LOG_INFO, "Hotplug stopped");
+			Log1(PCSC_LOG_DEBUG, "Hotplug stopped");
 			pthread_exit(&retval);
 		}
 
@@ -404,7 +410,7 @@ LONG HPAddHotPluggable(struct usb_device *dev, const char bus_device[],
 
 	SYS_MutexLock(&usbNotifierMutex);
 
-	Log2(PCSC_LOG_INFO, "Adding USB device: %s", bus_device);
+	Log2(PCSC_LOG_DEBUG, "Adding USB device: %s", bus_device);
 
 	snprintf(deviceName, sizeof(deviceName), "usb:%04x/%04x:libusb:%s",
 		dev->descriptor.idVendor, dev->descriptor.idProduct, bus_device);
@@ -427,8 +433,9 @@ LONG HPAddHotPluggable(struct usb_device *dev, const char bus_device[],
 	strncpy(readerTracker[i].bus_device, bus_device,
 		sizeof(readerTracker[i].bus_device));
 	readerTracker[i].bus_device[sizeof(readerTracker[i].bus_device) - 1] = '\0';
-   
+
 	readerTracker[i].driver = driver;
+	readerTracker[i].libusbdev = dev;
 
 #ifdef ADD_SERIAL_NUMBER
 	if (dev->descriptor.iSerialNumber)
@@ -451,10 +458,12 @@ LONG HPAddHotPluggable(struct usb_device *dev, const char bus_device[],
 		readerTracker[i].fullName = strdup(driver->readerName);
 
 	if (RFAddReader(readerTracker[i].fullName, PCSCLITE_HP_BASE_PORT + i,
-		driver->libraryPath, deviceName) == SCARD_S_SUCCESS)
+		driver->libraryPath, deviceName, AUTHSVCNAME) == SCARD_S_SUCCESS) {
 		readerTracker[i].status = READER_PRESENT;
-	else
+
+	} else {
 		readerTracker[i].status = READER_FAILED;
+	}
 
 	SYS_MutexUnLock(&usbNotifierMutex);
 
@@ -465,7 +474,7 @@ LONG HPRemoveHotPluggable(int index)
 {
 	SYS_MutexLock(&usbNotifierMutex);
 
-	Log3(PCSC_LOG_INFO, "Removing USB device[%d]: %s", index,
+	Log3(PCSC_LOG_DEBUG, "Removing USB device[%d]: %s", index,
 		readerTracker[index].bus_device);
 
 	RFRemoveReader(readerTracker[index].fullName,

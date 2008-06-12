@@ -1,0 +1,84 @@
+This is Solaris-specific version of PC/SC-Lite that has been re-architected
+with security and scalability enhancements to support larger installs
+beyond just single user machines -- for example thin client networks.
+
+Some of the changes were necessitated by the requirement that PC/SC-Lite
+run under the security constraints of Solaris Trusted Extensions and
+Solaris Zones.
+
+For more information about the re-design, please see the file
+SECURITY_SCALABILITY_ENHANCEMENTS.pdf in this branch.
+
+PREPARING THE SOLARIS 10 BUILD MACHINE:
+--------------------------------------
+
+This workspace is setup to build the package "SolarisPCSC" on a 
+Solaris 10 system.   The hope is that this code will ultimately be
+merged back into the trunk, but there is some work involved in doing
+that as is explained in SECURITY_SCALABILITY_ENHANCEMENTS.pdf.
+
+To build with the pre-set configuration provided in this workspace
+in the buildenv folder, the following need to be present on the build
+machine:
+
+	Sun Studio 11 (gcc works if buildenv tweaked)
+	Solaris 10 Companion Software (from sun.com).
+
+The following utilities supporting autoconf and automake should
+be present on the system.  If acceptable versions of these
+utilities are found in /opt/sfw (from the Solaris Companion Software),
+you will need to modify the path in the buildenv directory to find them,
+because the minimum working versions were not when this build
+environment was originally created.
+
+So you may need to require these or later version from the Internet.
+Note: Later versions of the following may work but haven't been tested.
+Currently the buildenv tries to use the ones it finds in /usr/local:
+
+
+	automake 1.10	(http://www.gnu.org/software/automake/)
+	aclocal 1.10    (part of automake distribution)
+	autoconf 2.6.0  (http://www.gnu.org/software/autoconf/)
+	libtool 1.5.22  (http://www.gnu.org/software/libtool/)
+	m4 1.4.4 	(http://www.gnu.org/software/m4/)
+	pkgconfig 0.19  (http://pkg-config.freedesktop.org/wiki)
+
+
+BUILDING WORKSPACE WITH PRE-BUILT CONFIGURATION:
+-----------------------------------------------
+
+1. Move or copy the 'buildenv' directory to some place outside of the 
+   this download bundle. 
+
+2. Copy the distribution (in its current layout) into a folder named pcsclite
+   under the buildenv folder you relocated, such that the top level files
+   including the top level Makefile and autoconf configuration files
+   are inside the pcsclite folder (ie. not in another folder underneath
+   pcsclite).
+
+3. $ cd buildenv/pcsclite
+
+4. Issue the following commands to set up the autoconf environment:
+
+   $ aclocal
+   $ autoconf
+   $ automake --add-missing
+   $ autoreconf
+
+   There may be some weird warnings, but unless they look particularly
+   fatal they're probably OK.  You'll know for sure if it fails when you try
+   to run make config next.  (Note: Any suggestions on how to clean
+   this up to make the autoconf stuff work w/o errors are welcome).
+
+5. Issue the following commands:
+
+   $ cd ..
+   $ make config
+   $ make all
+
+If all goes well buildenv/dist/<platform>/SolarisPCSC should be created.
+To build on the alternate Solaris infrastructure (for example if you 
+built the SPARC packages and want to build i386 packages in the same
+workspace), you can log into a properly provisioned Solaris machine,
+cd into buildenv, run make clean, make config, make all, which will
+build the new package without destroying the one for the other 

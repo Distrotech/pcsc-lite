@@ -24,7 +24,8 @@
 #include <stdlib.h>
 
 #include "misc.h"
-#include "pcsclite.h"
+#include "pcsclite.h"    
+#include "pcsc_config.h"
 #include "ifdhandler.h"
 #include "debuglog.h"
 #include "thread_generic.h"
@@ -36,66 +37,112 @@
 #include "prothandler.h"
 #include "strlcpycat.h"
 
+
 static PREADER_STATE readerStates[PCSCLITE_MAX_READERS_CONTEXTS];
 
 void EHStatusHandlerThread(PREADER_CONTEXT);
+
+
+
+LONG EHfetchReaderState(unsigned int index, PREADER_STATE data)
+{
+	/*
+	 * These are client side request errors and should NEVER
+	 * be returned during normal operation.
+	 */
+        if (index < 0 || index > PCSCLITE_MAX_READERS_CONTEXTS -1 || 
+	    data==NULL)
+                return -1;
+ 
+        memcpy(data, readerStates[index], sizeof (READER_STATE));
+        return 0;
+}
+
 
 LONG EHInitializeEventStructures(void)
 {
 	int fd, i, pageSize;
 
-	fd = 0;
-	i = 0;
-	pageSize = 0;
+        if (pcscCfg.useMappedMemory) {
+        	fd = 0;
+        	i = 0;
+        	pageSize = 0;
+        
+               	SYS_RemoveFile(pcscCfg.pcscdMemMappedFile);
+                
+               	fd = SYS_OpenFile(pcscCfg.pcscdMemMappedFile,
+                        O_RDWR | O_CREAT, 00644);
+                if (fd < 0)
+                {
+              		Log3(PCSC_LOG_CRITICAL, "Cannot create public shared file %s: %s",
+       		                pcscCfg.pcscdMemMappedFile, strerror(errno));
+       	                exit(1);
+                }
+                
+      	        SYS_Chmod(pcscCfg.pcscdMemMappedFile,
+               	        S_IRGRP | S_IREAD | S_IWRITE | S_IROTH);
+        
+        	pageSize = SYS_GetPageSize();
+        
+        	/*
+	        * Jump to end of file space and allocate zero's 
+	        */
+	        SYS_SeekFile(fd, pageSize * PCSCLITE_MAX_READERS_CONTEXTS);
+	        SYS_WriteFile(fd, "", 1);
 
-	SYS_RemoveFile(PCSCLITE_PUBSHM_FILE);
-
-	fd = SYS_OpenFile(PCSCLITE_PUBSHM_FILE, O_RDWR | O_CREAT, 00644);
-	if (fd < 0)
-	{
-		Log3(PCSC_LOG_CRITICAL, "Cannot create public shared file %s: %s",
-			PCSCLITE_PUBSHM_FILE, strerror(errno));
-		exit(1);
-	}
-
-	SYS_Chmod(PCSCLITE_PUBSHM_FILE,
-		S_IRGRP | S_IREAD | S_IWRITE | S_IROTH);
-
-	pageSize = SYS_GetPageSize();
-
-	/*
-	 * Jump to end of file space and allocate zero's 
-	 */
-	SYS_SeekFile(fd, pageSize * PCSCLITE_MAX_READERS_CONTEXTS);
-	SYS_WriteFile(fd, "", 1);
-
-	/*
-	 * Allocate each reader structure 
-	 */
-	for (i = 0; i < PCSCLITE_MAX_READERS_CONTEXTS; i++)
-	{
-		readerStates[i] = (PREADER_STATE)
-			SYS_MemoryMap(sizeof(READER_STATE), fd, (i * pageSize));
-		if (readerStates[i] == MAP_FAILED)
-		{
-			Log3(PCSC_LOG_CRITICAL, "Cannot memory map public shared file %s: %s",
-				PCSCLITE_PUBSHM_FILE, strerror(errno));
-			exit(1);
-		}
-
-		/*
-		 * Zero out each value in the struct 
-		 */
-		memset((readerStates[i])->readerName, 0, MAX_READERNAME);
-		memset((readerStates[i])->cardAtr, 0, MAX_ATR_SIZE);
-		(readerStates[i])->readerID = 0;
-		(readerStates[i])->readerState = 0;
-		(readerStates[i])->lockState = 0;
-		(readerStates[i])->readerSharing = 0;
-		(readerStates[i])->cardAtrLength = 0;
-		(readerStates[i])->cardProtocol = SCARD_PROTOCOL_UNSET;
-	}
-
+	        /*
+	         * Allocate each reader structure in mapped file
+        	 */
+        	for (i = 0; i < PCSCLITE_MAX_READERS_CONTEXTS; i++)
+        	{
+		        readerStates[i] = (PREADER_STATE)
+        			SYS_MemoryMap(sizeof(READER_STATE), fd, (i * pageSize));
+		        if (readerStates[i] == MAP_FAILED)
+		        {
+        			Log3(PCSC_LOG_CRITICAL, "Cannot memory map public shared file %s: %s",
+				        pcscCfg.pcscdMemMappedFile, 
+                                        strerror(errno));
+			        exit(1);
+		        }
+        
+		        /*
+		        * Zero out each value in the struct 
+		        */
+		        memset((readerStates[i])->readerName, 0, MAX_READERNAME);
+		        memset((readerStates[i])->cardAtr, 0, MAX_ATR_SIZE);
+		        (readerStates[i])->readerID = 0;
+		        (readerStates[i])->readerState = 0;
+		        (readerStates[i])->lockState = 0;
+		        (readerStates[i])->readerSharing = 0;
+		        (readerStates[i])->cardAtrLength = 0;
+		        (readerStates[i])->cardProtocol = SCARD_PROTOCOL_UNSET;
+	        }
+        } else {
+	        /*
+	         * Allocate each reader structure from dynamic memory 
+        	 */
+        	for (i = 0; i < PCSCLITE_MAX_READERS_CONTEXTS; i++)
+        	{
+		        readerStates[i] = (PREADER_STATE)malloc(sizeof (READER_STATE));
+		        if (readerStates[i] == NULL)
+		        {
+        			Log1(PCSC_LOG_CRITICAL, "Out of memory");
+			        exit(1);
+		        }
+        
+		        /*
+		        * Zero out each value in the struct 
+		        */
+		        memset((readerStates[i])->readerName, 0, MAX_READERNAME);
+		        memset((readerStates[i])->cardAtr, 0, MAX_ATR_SIZE);
+		        (readerStates[i])->readerID = 0;
+		        (readerStates[i])->readerState = 0;
+		        (readerStates[i])->lockState = 0;
+		        (readerStates[i])->readerSharing = 0;
+		        (readerStates[i])->cardAtrLength = 0;
+		        (readerStates[i])->cardProtocol = SCARD_PROTOCOL_UNSET;
+	        }
+        }
 	return SCARD_S_SUCCESS;
 }
 
@@ -109,7 +156,7 @@ LONG EHDestroyEventHandler(PREADER_CONTEXT rContext)
 
 	if ('\0' == rContext->readerState->readerName[0])
 	{
-		Log1(PCSC_LOG_INFO, "Thread already stomped.");
+		Log1(PCSC_LOG_DEBUG, "Thread already stomped.");
 		return SCARD_S_SUCCESS;
 	}
 
@@ -118,7 +165,7 @@ LONG EHDestroyEventHandler(PREADER_CONTEXT rContext)
 	 */
 	rContext->dwLockId = 0xFFFF;
 
-	Log1(PCSC_LOG_INFO, "Stomping thread.");
+	Log1(PCSC_LOG_DEBUG, "Stomping thread.");
 
 	do
 	{
@@ -147,7 +194,7 @@ LONG EHDestroyEventHandler(PREADER_CONTEXT rContext)
 	/* Zero the thread */
 	rContext->pthThread = 0;
 
-	Log1(PCSC_LOG_INFO, "Thread stomped.");
+	Log1(PCSC_LOG_DEBUG, "Thread stomped.");
 
 	return SCARD_S_SUCCESS;
 }
@@ -243,12 +290,12 @@ void EHStatusHandlerThread(PREADER_CONTEXT rContext)
 
 			if (rContext->readerState->cardAtrLength > 0)
 			{
-				LogXxd(PCSC_LOG_INFO, "Card ATR: ",
+				LogXxd(PCSC_LOG_DEBUG, "Card ATR: ",
 					rContext->readerState->cardAtr,
 					rContext->readerState->cardAtrLength);
 			}
 			else
-				Log1(PCSC_LOG_INFO, "Card ATR: (NULL)");
+				Log1(PCSC_LOG_DEBUG, "Card ATR: (NULL)");
 		}
 		else
 		{
@@ -275,7 +322,6 @@ void EHStatusHandlerThread(PREADER_CONTEXT rContext)
 		dwStatus &= ~SCARD_UNKNOWN;
 		rContext->readerState->cardAtrLength = 0;
 		rContext->readerState->cardProtocol = SCARD_PROTOCOL_UNSET;
-
 		dwCurrentState = SCARD_ABSENT;
 	}
 
@@ -347,7 +393,7 @@ void EHStatusHandlerThread(PREADER_CONTEXT rContext)
 				/*
 				 * Change the status structure 
 				 */
-				Log2(PCSC_LOG_INFO, "Card Removed From %s", lpcReader);
+				Log2(PCSC_LOG_DEBUG, "Card Removed From %s", lpcReader);
 				/*
 				 * Notify the card has been removed 
 				 */
@@ -416,18 +462,18 @@ void EHStatusHandlerThread(PREADER_CONTEXT rContext)
 
 				SYS_MMapSynchronize((void *) rContext->readerState, pageSize);
 
-				Log2(PCSC_LOG_INFO, "Card inserted into %s", lpcReader);
+				Log2(PCSC_LOG_DEBUG, "Card inserted into %s", lpcReader);
 
 				if (rv == IFD_SUCCESS)
 				{
 					if (rContext->readerState->cardAtrLength > 0)
 					{
-						LogXxd(PCSC_LOG_INFO, "Card ATR: ",
+						LogXxd(PCSC_LOG_DEBUG, "Card ATR: ",
 							rContext->readerState->cardAtr,
 							rContext->readerState->cardAtrLength);
 					}
 					else
-						Log1(PCSC_LOG_INFO, "Card ATR: (NULL)");
+						Log1(PCSC_LOG_DEBUG, "Card ATR: (NULL)");
 				}
 				else
 					Log1(PCSC_LOG_ERROR,"Error powering up card.");
@@ -454,8 +500,11 @@ void EHStatusHandlerThread(PREADER_CONTEXT rContext)
 			rContext->readerState->readerSharing = dwReaderSharing;
 			SYS_MMapSynchronize((void *) rContext->readerState, pageSize);
 		}
-
-		SYS_USleep(PCSCLITE_STATUS_POLL_RATE);
+#if 0
+		CFGdumpEventState(dwStatus);
+		CFGdumpReaderState(rContext->readerState->readerState);
+#endif		
+               SYS_USleep(pcscCfg.statusPollRate);
 	}
 }
 
@@ -463,3 +512,4 @@ void EHSetSharingEvent(PREADER_CONTEXT rContext, DWORD dwValue)
 {
 	rContext->readerState->lockState = dwValue;
 }
+

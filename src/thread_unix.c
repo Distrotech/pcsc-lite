@@ -24,6 +24,27 @@
 #define FALSE 0
 #endif
 
+
+INTERNAL int SYS_CondInit(PCSCLITE_COND_T mCond) 
+{
+        return pthread_cond_init(&mCond, NULL);
+}
+
+INTERNAL int SYS_CondWait(PCSCLITE_COND_T mCond, PCSCLITE_MUTEX_T mMutex) 
+{
+        return pthread_cond_wait(mCond, mMutex);
+}
+
+INTERNAL int SYS_CondSignal(PCSCLITE_COND_T mCond)
+{
+        return pthread_cond_signal(mCond);
+}
+
+INTERNAL int SYS_CondBroadcast(PCSCLITE_COND_T mCond)
+{
+        return pthread_cond_broadcast(mCond);
+}
+
 INTERNAL int SYS_MutexInit(PCSCLITE_MUTEX_T mMutex)
 {
 	return pthread_mutex_init(mMutex, NULL);
@@ -56,10 +77,13 @@ INTERNAL int SYS_ThreadCreate(PCSCLITE_THREAD_T * pthThread, int attributes,
 		attributes & THREAD_ATTR_DETACHED ? PTHREAD_CREATE_DETACHED : PTHREAD_CREATE_JOINABLE))
 		return FALSE;
 	
-	if (0 == pthread_create(pthThread, &attr, pvFunction, pvArg))
-		return TRUE;
-	else
+	if (0 != pthread_create(pthThread, &attr, pvFunction, pvArg)) {
+		pthread_attr_destroy(&attr);
 		return FALSE;
+	}
+	pthread_attr_destroy(&attr);
+	return TRUE;
+	
 }
 
 INTERNAL int SYS_ThreadCancel(PCSCLITE_THREAD_T * pthThread)

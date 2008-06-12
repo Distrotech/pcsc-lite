@@ -591,7 +591,6 @@ static LONG SCardStatusTH(SCARDHANDLE hCard, LPSTR mszReaderNames,
 	int i;
 	DWORD dwReaderLen;
 	SCF_Card_t SCF_hCard;
-
 	if (SCARD_S_SUCCESS != isOCFServerRunning())
 		return SCARD_E_NO_SERVICE;
 	/* Zero out everything   */

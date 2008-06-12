@@ -4,11 +4,10 @@
  * Copyright (C) 1999-2005
  *  David Corcoran <corcoran@linuxnet.com>
  *  Ludovic Rousseau <ludovic.rousseau@free.fr>
+ *  Paul Klissner <paul.klissner@sun.com>
  *
  * $Id$
- */
-
-/**
+ *
  * @file
  * @brief This is the main pcscd daemon.
  *
@@ -17,24 +16,44 @@
  * Client connection a call to \c CreateContextThread() is done.
  */
 
+
 #include "config.h"
-#include <time.h>
-#include <syslog.h>
-#include <signal.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <errno.h>
-#include <stdio.h>
+#include <syslog.h>
+#include <signal.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/varargs.h>
+#include <strings.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <ctype.h>
+#include <netdb.h>
+#include <errno.h>
+#include <stdio.h>
+#include <time.h>
+#include <limits.h>
+#include <syslog.h>
+
+
+#include <dlfcn.h>
+#include <link.h>
+
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #endif
 
 #include "misc.h"
 #include "pcsclite.h"
+#include "pcsc_config.h"
+#include "daemon_utils.h"
 #include "debuglog.h"
+#include "instance.h"
 #include "winscard_msg.h"
 #include "winscard_svc.h"
 #include "sys_generic.h"
@@ -43,95 +62,58 @@
 #include "readerfactory.h"
 #include "configfile.h"
 #include "powermgt_generic.h"
+#include "pcscdaemon.h"
+#include "validate.h"
 
-#ifndef TRUE
-#define TRUE 1
-#define FALSE 0
-#endif
+PCSCLITE_MUTEX usbNotifierMutex;
+char *execPath;
+struct pcsc_cfg_data pcscCfg;
+struct pcsc_cfg_data launcherCfg;
 
 char AraKiri = FALSE;
 static char Init = TRUE;
 extern char ReCheckSerialReaders;
+static int column = 0;
 
-/*
- * Some internal functions 
- */
-void SVCServiceRunLoop(void);
-void SVCClientCleanup(psharedSegmentMsg);
-void at_exit(void);
-void clean_temp_files(void);
-void signal_reload(int sig);
-void signal_trap(int);
-void print_version (void);
-void print_usage (char const * const);
+void printWrap(const char *, ...);
+void ListInvocationModes();
+void usage(char const * const);
 
-PCSCLITE_MUTEX usbNotifierMutex;
-
-/*
- * Cleans up messages still on the queue when a client dies 
- */
-void SVCClientCleanup(psharedSegmentMsg msgStruct)
-{
-	/*
-	 * May be implemented in future releases 
-	 */
-}
 
 /**
  * @brief The Server's Message Queue Listener function.
  *
- * An endless loop calls the function \c SHMProcessEventsServer() to check for
- * messages sent by clients.
- * If the message is valid, \c CreateContextThread() is called to serve this 
- * request.
+ * An endless loop calls the function \c SHMProcessEventsServer() to
+ * check for messages sent by clients.
+ *
+ * If the message is valid, \c CreateContextThread() is called to
+ * serve this request.
  */
-void SVCServiceRunLoop(void)
+void
+SVCServiceRunLoop(void)
 {
-	int rsp;
-	LONG rv;
-	DWORD dwClientID;	/* Connection ID used to reference the Client */
-	
-	rsp = 0;
-	rv = 0;
+	int rsp = 0;
+	LONG rv = 0;
+	DWORD dwClientID;  /* Connection ID (fd) used to reference Client */
 
-	/*
-	 * Initialize the comm structure 
-	 */
-	rsp = SHMInitializeCommonSegment();
-
-	if (rsp == -1)
-	{
+	if (SHMInitializeCommonSegment() == -1) {
 		Log1(PCSC_LOG_CRITICAL, "Error initializing pcscd.");
 		exit(-1);
 	}
 
-	/*
-	 * Initialize the contexts structure 
-	 */
-	rv = ContextsInitialize();
-
-	if (rv == -1)
-	{
+	if (ContextsInitialize() == -1) {
 		Log1(PCSC_LOG_CRITICAL, "Error initializing pcscd.");
 		exit(-1);
 	}
 
-	/*
-	 * Solaris sends a SIGALRM and it is annoying 
-	 */
-
-	signal(SIGALRM, SIG_IGN);
+	signal(SIGALRM, SIG_IGN); // Disable SIGALRM sent by Solaris
 	signal(SIGPIPE, SIG_IGN);
-	signal(SIGHUP, SIG_IGN);	/* needed for Solaris. The signal is sent
-				 * when the shell is existed */
+	signal(SIGHUP,  SIG_IGN); // Disable SIGHUP sent by Solaris if shell
+
+	(void) SYS_MutexInit(&usbNotifierMutex);
 
 	/*
-	 * This function always returns zero 
-	 */
-	rsp = SYS_MutexInit(&usbNotifierMutex);
-
-	/*
-	 * Set up the search for USB/PCMCIA devices 
+	 * Set up the search for USB/PCMCIA devices
 	 */
 	HPSearchHotPluggables();
 	HPRegisterForHotplugEvents();
@@ -141,256 +123,677 @@ void SVCServiceRunLoop(void)
 	 */
 	PMRegisterForPowerEvents();
 
-	while (TRUE)
-	{
-
-		switch (rsp = SHMProcessEventsServer(&dwClientID, 0))
-		{
-
+	while (TRUE) {
+		switch (rsp = SHMProcessEventsServer(&dwClientID, 0)) {
 		case 0:
-			Log2(PCSC_LOG_DEBUG, "A new context thread creation is requested: %d", dwClientID);
+			Log2(PCSC_LOG_DEBUG,
+			     "A new context thread creation "
+			     "is requested: %d", dwClientID);
+
 			rv = CreateContextThread(&dwClientID);
 
- 			if (rv != SCARD_S_SUCCESS)
-			{
-				Log1(PCSC_LOG_ERROR, "Problem during the context thread creation");
+			if (rv != SCARD_S_SUCCESS)  {
+				Log1(PCSC_LOG_ERROR,
+				     "Problem in context thread creation");
 				AraKiri = TRUE;
 			}
-
 			break;
 
 		case 2:
 			/*
-			 * timeout in SHMProcessEventsServer(): do nothing
-			 * this is used to catch the Ctrl-C signal at some time when
-			 * nothing else happens
+			 * Timeout in SHMProcessEventsServer(): do nothing
+			 * this is used to catch the Ctrl-C signal at some
+			 * time when nothing else happens
 			 */
 			break;
 
 		case -1:
-			/* do not display if we are exiting or re-reading the config */
+			/* Don't display if exiting or re-reading config */
 			if ((!AraKiri) && (!ReCheckSerialReaders))
-				Log1(PCSC_LOG_ERROR, "Error in SHMProcessEventsServer");
+				Log1(PCSC_LOG_ERROR,
+				     "Error in SHMProcessEventsServer");
 			break;
 
 		default:
-			Log2(PCSC_LOG_ERROR, "SHMProcessEventsServer unknown retval: %d",
-				rsp);
+			Log2(PCSC_LOG_ERROR,
+			    "SHMProcessEventsServer unknown retval: %d", rsp);
 			break;
 		}
-
-		if (AraKiri)
-		{
+		if (AraKiri) {
 			/* stop the hotpug thread and waits its exit */
 			HPStopHotPluggables();
 			SYS_Sleep(1);
 
-			/* now stop all the drivers */
-			RFCleanupReaders(1);
+			RFCleanupReaders(1);  // Stop all driver
 		}
 	}
 }
 
-int main(int argc, char **argv)
+
+int
+main(int argc, char **argv)
 {
-	int rv;
-	char setToForeground;
-	char *newReaderConfig;
-	struct stat fStatBuf;
-	int opt;
-#ifdef HAVE_GETOPT_LONG
-	int option_index = 0;
-	static struct option long_options[] = {
-		{"config", 1, 0, 'c'},
-		{"foreground", 0, 0, 'f'},
-		{"help", 0, 0, 'h'},
-		{"version", 0, 0, 'v'},
-		{"apdu", 0, 0, 'a'},
-		{"debug", 0, 0, 'd'},
-		{"info", 0, 0, 0},
-		{"error", 0, 0, 'e'},
-		{"critical", 0, 0, 'C'},
-		{0, 0, 0, 0}
-	};
+	char args[LINEMAX];
+	char cwd[LINEMAX];
+	char name[LINEMAX];
+	char tmp[MAXPATHLEN];
+	char *cp;
+	int i, opt, servicePort = 0;
+	int stopInstFlag = 0, rv;
+	int dpyNbr, screenNbr;
+	int instpid = 0;
+	in_addr_t xHostIp;
+
+#ifdef PCSCLITE_PORTSVC_PORTNO
+	servicePort = PCSCLITE_PORTSVC_PORTNO;
+#else
+	servicePort = 0;
 #endif
-	
-	rv = 0;
-	newReaderConfig = 0;
-	setToForeground = FALSE;
+
+	pcscCfg.argv0 = strdup(argv[0]);
+	ChkVersion();
 
 	/*
-	 * test the version 
+	 * Build list of the valid options.
 	 */
-	if (strcmp(PCSCLITE_VERSION_NUMBER, VERSION) != 0)
-	{
-		printf("BUILD ERROR: The release version number PCSCLITE_VERSION_NUMBER\n");
-		printf("  in pcsclite.h (%s) does not match the release version number\n",
-			PCSCLITE_VERSION_NUMBER);
-		printf("  generated in config.h (%s) (see configure.in).\n", VERSION);
-
-		return EXIT_FAILURE;
+	bzero(args, sizeof (args));
+	for (i = 0; longOpts[i].name != NULL; i++) {
+		char item[4];
+		if (longOpts[i].has_arg)
+			sprintf(item, "%c:", longOpts[i].val);
+		else
+			sprintf(item, "%c", longOpts[i].val);
+		strcat(args, item);
 	}
 
 	/*
-	 * By default we create a daemon (not connected to any output)
-	 * so log to syslog to have error messages.
+	 * Check for these options first
+	 */
+	CFGSetConfigConsumer(DEFAULT);
+	while ((opt = GETOPT(argc, argv, args, longOpts, optIndex)) != -1) {
+		switch(opt) {
+		case OPT_INSTANCE:
+			CFGSetConfigConsumer(INSTANCE);
+			break;
+		case OPT_LAUNCHER:
+			CFGSetConfigConsumer(LAUNCHER);
+			break;
+		}
+	}
+
+	/*
+	 * Set up defaults
 	 */
 	DebugLogSetLogType(DEBUGLOG_SYSLOG_DEBUG);
+	DebugLogSetLevel(PCSC_LOG_CRITICAL);
+
+	CFGDefault("USE_AUTHENTICATION",	"FALSE");
+	CFGDefault("TRANSPORT",			"SOCKET_UNIX");
+	CFGDefault("USE_MAPPED_MEMORY",		"TRUE");
+	CFGDefault("PORT_NUMBER_WILD",		"FALSE");
+	CFGDefault("INSTANCE_TIMEOUT",		"0");
+	CFGDefault("BASE_DIR_WILD",		"FALSE");
+	CFGDefault("LOG_LEVEL",			"CRITICAL");
+	CFGDefault("LOG_TYPE",			"SYSLOG");
+	CFGDefault("STATUS_POLL_RATE",		"400000");
+	CFGDefault("FIFO_PING_TIMEOUT",         "4");
+	CFGDefault("RELAUNCH_THRESHOLD",        "2");
+	CFGDefault("RELAUNCH_INTERVAL",         "1");
+
+	pcscCfg.pcscConfigFile = PCSCLITE_CONFIG_DIR "/pcscd.conf";
+
 
 	/*
-	 * Handle any command line arguments 
+	 * Scan options for arguments to process prior to loading config file
 	 */
-#ifdef  HAVE_GETOPT_LONG
-	while ((opt = getopt_long (argc, argv, "c:fdhvaeC", long_options, &option_index)) != -1) {
-#else
-	while ((opt = getopt (argc, argv, "c:fdhvaeC")) != -1) {
-#endif
-		switch (opt) {
-			case 'c':
-				Log2(PCSC_LOG_INFO, "using new config file: %s", optarg);
-				newReaderConfig = optarg;
-				break;
+	 optind = 0;  // Reset for re-processing cmd line args
+	 while ((opt = GETOPT(argc, argv, args, longOpts, optIndex)) != -1) {
+		switch(opt) {
+		case OPT_STOPINST:
+			/*
+			 * Defer geting X display #
+			 */
+			stopInstFlag = TRUE;
+			break;
 
-			case 'f':
-				setToForeground = TRUE;
-				/* debug to stderr instead of default syslog */
-				DebugLogSetLogType(DEBUGLOG_STDERR_DEBUG);
-				Log1(PCSC_LOG_INFO,
-					"pcscd set to foreground with debug send to stderr");
-				break;
-
-			case 'd':
-				DebugLogSetLevel(PCSC_LOG_DEBUG);
-				break;
-
-			case 'e':
-				DebugLogSetLevel(PCSC_LOG_ERROR);
-				break;
-
-			case 'C':
-				DebugLogSetLevel(PCSC_LOG_CRITICAL);
-				break;
-
-			case 'h':
-				print_usage (argv[0]);
-				return EXIT_SUCCESS;
-
-			case 'v':
-				print_version ();
-				return EXIT_SUCCESS;
-
-			case 'a':
-				DebugLogSetCategory(DEBUG_CATEGORY_APDU);
-				break;
-
-			default:
-				print_usage (argv[0]);
-				return EXIT_FAILURE;
-		}
-
-	}
-	
-	if (argv[optind])
-	{
-		printf("Unknown option: %s\n\n", argv[optind]);
-		print_usage(argv[0]);
-		return EXIT_SUCCESS;
-	}
-
-	/*
-	 * test the presence of /var/run/pcsc.pub
-	 */
-
-	rv = SYS_Stat(PCSCLITE_PUBSHM_FILE, &fStatBuf);
-
-	if (rv == 0)
-	{
-#ifdef USE_RUN_PID
-
-		/* read the pid file to get the old pid and test if the old pcscd is
-		 * still running 
-		 */
-		FILE *f;
-		/* pids are only 15 bits but 4294967296
-		 * (32 bits in case of a new system use it) is on 10 bytes
-		 */
-#define PID_ASCII_SIZE 11
-		char pid_ascii[PID_ASCII_SIZE];
-		int pid;
-
-		if ((f = fopen(USE_RUN_PID, "rb")) != NULL)
-		{
-			fgets(pid_ascii, PID_ASCII_SIZE, f);
-			fclose(f);
-
-			pid = atoi(pid_ascii);
-
-			if (kill(pid, 0) == 0)
-			{
-				Log1(PCSC_LOG_CRITICAL,
-					"file " PCSCLITE_PUBSHM_FILE " already exists.");
-				Log2(PCSC_LOG_CRITICAL,
-					"Another pcscd (pid: %d) seems to be running.", pid);
-				return EXIT_FAILURE;
+		case OPT_LAUNCHER:  //Intentionally handled before & after file load.
+			if (servicePort > 0) {
+				rv = CFGSetArg(opt, "LAUNCH_MODE", "LAUNCHER", USER);
+				if (rv != CFG_SUCCESS) {
+					CFGperror(rv, "OPT_LAUNCHER");
+					exit(EXIT_FAILURE);
+				}
+			} else {
+				Log2(PCSC_LOG_ERROR,
+				     "-%c option not enabled. See "
+				     "'configure --enable-portsvc'",
+				     OPT_LAUNCHER);
+				exit(EXIT_FAILURE);
 			}
-			else
-				/* the old pcscd is dead. make some cleanup */
-				clean_temp_files();
+			break;
+		case OPT_INSTANCE:  //Intentionally handled before & after file load.
+
+			if (servicePort > 0) {
+				rv = CFGSetArg(opt, "LAUNCH_MODE", "INSTANCE", USER);
+				if (rv != CFG_SUCCESS) {
+					CFGperror(rv, "OPT_INSTANCE");
+					exit(EXIT_FAILURE);
+				}
+			} else {
+				Log2(PCSC_LOG_ERROR,
+				     "-%c option not enabled. See "
+				     "'configure --enable-portsvc'",
+				     OPT_INSTANCE);
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_DISPLAY:
+			rv = CFGParseXdisplay(optarg,
+				 &dpyNbr, &screenNbr, &xHostIp);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_DISPLAY");
+				exit(EXIT_FAILURE);
+			}
+			pcscCfg.dpyNbr = dpyNbr;
+			pcscCfg.screenNbr = screenNbr;
+			pcscCfg.xHostIp = xHostIp;
+			break;
+
+		case OPT_CONFIG:
+			pcscCfg.pcscConfigFile = strdup(optarg);
+			break;
+
+		case OPT_PID:
+			instpid = atoi(optarg);
+			if (instpid == 0) {
+				Log1(PCSC_LOG_CRITICAL, "Invalid PID");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_LOGFILE:
+			rv = CFGSetArg(opt, "LOG_FILE", optarg, USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "LOG_FILE");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_FOREGROUND:
+			DebugLogSetLogType(DEBUGLOG_STDERR_DEBUG);
+			rv = CFGSetArg(opt, "RUN_IN_FOREGROUND", "TRUE",  USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_FOREGROUND");
+				exit(EXIT_FAILURE);
+			}
+
+			rv = CFGProcessKvp("LOG_TYPE", "STDERR", USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_FOREGROUND");
+				exit(EXIT_FAILURE);
+			}
+
+			break;
+
+		case OPT_LOGTYPE:
+			rv = CFGSetArg(opt, "LOG_TYPE", optarg,  USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_LOGTYPE");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_LOGLEVEL:
+			DebugLogSetLevel(PCSC_LOG_DEBUG);
+			rv = CFGSetArg(opt, "LOG_LEVEL", optarg,  USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_SET_LOGLEVEL");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		default:
+			break;
 		}
-		else
-		{
+	}
+
+	/*
+	 * Load main config file, used by both launcher and instance.
+	 * (instance also loads instance-specific conf later).
+	 */
+	rv = CFGLoadConfigFile(pcscCfg.pcscConfigFile);
+	if (rv != CFG_SUCCESS) {
+		CFGperror(rv, "Error loading configuration file");
+		exit(EXIT_FAILURE);
+	}
+	bcopy(&pcscCfg, &launcherCfg, sizeof (pcscCfg));
+
+	CFGSetupLogging();
+	if (pcscCfg.logType == STDERR && pcscCfg.logFile != NULL) {
+		pcscCfg.logFile = CFGRetrofitPath(pcscCfg.logFile, NULL);
+		CFGStdOutErr(pcscCfg.logFile);
+	}
+
+	sprintf(tmp, "%s/pcscd_validate.conf", 	PCSCLITE_LIB_DIR);
+	pcscCfg.validateConf = strdup(tmp);
+
+	VALloadPlugins();
+
+	if (pcscCfg.launchMode == INSTANCE) {
+		char *cfg, *inst;
+		if (VALfindInstanceFiles(pcscCfg.dpyNbr, &cfg, &inst) < 0) {
+			Log2(PCSC_LOG_CRITICAL,
+			    "Couldn't find instance files for display %d",
+			    pcscCfg.dpyNbr);
+			exit(EXIT_FAILURE);
+		}
+		pcscCfg.pcscConfigFile = cfg;
+		pcscCfg.instanceScript = inst;
+		(void) CFGLoadConfigFile(pcscCfg.pcscConfigFile);
+		if (pcscCfg.baseDir != NULL) {
+		       if (pcscCfg.baseDirWild) {
+			    char dpyNbr[6];
+			    if (pcscCfg.dpyNbr == -1) {
+				    CFGperror(CFG_UNDEFINED_DISPLAY, "");
+				    exit(EXIT_FAILURE);
+			    }
+			    sprintf(dpyNbr, "%d", pcscCfg.dpyNbr);
+			    CFGresolveWildcard(&pcscCfg.baseDir, dpyNbr);
+			}
+		}
+		CFGSetupLogging();
+		if (pcscCfg.logType == STDERR && pcscCfg.logFile != NULL) {
+			pcscCfg.logFile = CFGRetrofitPath(pcscCfg.logFile, NULL);
+			CFGStdOutErr(pcscCfg.logFile);
+		}
+		Log2(PCSC_LOG_DEBUG, "pcscd PID=%d logging...\n", getpid());
+		if (pcscCfg.apduDebug) {
+			Log1(PCSC_LOG_DEBUG,
+				"Setting APDU debug mode");
+			DebugLogSetCategory(DEBUG_CATEGORY_APDU);
+		}
+	}
+
+
+	if (stopInstFlag) {
+		if (instpid == 0) {
+			fprintf(stderr, "Must specify valid PID\n");
+			exit(-1);
+		}
+		StopInstance(pcscCfg.dpyNbr, instpid);
+		exit(0);
+	} else if (pcscCfg.launchMode == LAUNCHER) {
+		if (*argv[0] != '/') {
 			Log1(PCSC_LOG_CRITICAL,
-				"file " PCSCLITE_PUBSHM_FILE " already exists.");
-			Log1(PCSC_LOG_CRITICAL,
-				"Maybe another pcscd is running?");
-			Log1(PCSC_LOG_CRITICAL, 
-				"I can't read process pid from " USE_RUN_PID);
-			Log1(PCSC_LOG_CRITICAL,
-				"Remove " PCSCLITE_PUBSHM_FILE " and " PCSCLITE_CSOCK_NAME);
-			Log1(PCSC_LOG_CRITICAL,
-				"if pcscd is not running to clear this message.");
+			     "Must invoke with full path to executable\n"
+			     "in launcher mode");
+			exit(EXIT_FAILURE);
+		}
+		execPath = strdup(argv[0]);
+
+		if (pcscCfg.portNbr == 0 && servicePort > 0)
+			pcscCfg.portNbr =  servicePort;
+
+		pcscCfg.dpyNbr = -1;
+		pcscCfg.screenNbr = -1;
+		pcscCfg.xHostIp = -1;
+
+		if (strlen(XSERVERS_FILE) == 0) {
+		    Log1(PCSC_LOG_CRITICAL,
+			 "Must configure with --enable-xtag=<Xservers PATH>\n"
+			 "To run in port service/daemon-launcher mode (-#)");
+		    exit(EXIT_FAILURE);
+		}
+	} else if (pcscCfg.launchMode != INSTANCE) {
+		/*
+		* Attempt to read DISPLAY from the environment.
+		* We excuse it here if it's not defined, because it may
+		* be passed as an argv[] option, or simply not required
+		* depending on other options pcscd was launched with.
+		*/
+		int rv = CFGParseXdisplay(SYS_Getenv("DISPLAY"),
+			&dpyNbr, &screenNbr, &xHostIp);
+		pcscCfg.dpyNbr = dpyNbr;
+		pcscCfg.screenNbr = screenNbr;
+		pcscCfg.xHostIp = xHostIp;
+		switch(rv) {
+		case CFG_SUCCESS:
+		case CFG_UNDEFINED_DISPLAY:
+			break;
+		default:
+			CFGperror(rv, "Error parsing display");
+			exit(EXIT_FAILURE);
+		}
+	}
+
+
+
+	/*
+	 * Re-scan command line arguments for remaining arguments.
+	 * Arguments found in this scan override the conf file
+	 * settings.
+	 */
+	optind = 0;  // Reset for re-processing cmd line args
+	while ((opt = GETOPT(argc, argv, args, longOpts, optIndex)) != -1) {
+		switch (opt) {
+		case OPT_LAUNCHER: //handled before & after file load.
+
+			if (servicePort > 0) {
+				rv = CFGSetArg(opt, "LAUNCH_MODE", "LAUNCHER", USER);
+				if (rv != CFG_SUCCESS) {
+					CFGperror(rv, "OPT_LAUNCHER");
+					exit(EXIT_FAILURE);
+				}
+			} else {
+				Log2(PCSC_LOG_ERROR,
+				     "-%c option not enabled. See "
+				     "'configure --enable-portsvc'",
+				     OPT_LAUNCHER);
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_INSTANCE:  //Instance processing both before & after file load.
+
+			if (servicePort > 0) {
+				rv = CFGSetArg(opt, "LAUNCH_MODE", "INSTANCE", USER);
+				if (rv != CFG_SUCCESS) {
+					CFGperror(rv, "OPT_INSTANCE");
+					exit(EXIT_FAILURE);
+				}
+			} else {
+				Log2(PCSC_LOG_ERROR,
+				     "-%c option not enabled. See "
+				     "'configure --enable-portsvc'",
+				     OPT_INSTANCE);
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_USEAUTH:
+			rv =  CFGSetArg(opt, "USE_AUTHENTICATION", "TRUE", USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_USEAUTH");
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case OPT_READERCFG:
+			Log2(PCSC_LOG_DEBUG, "using new config file: %s",
+			     optarg);
+			rv = CFGSetArg(opt, "READER_CONFIG_FILE", optarg, USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_READERCFG");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_BASEDIR:
+			rv = CFGSetArg(opt, "BASE_DIR", optarg, USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_BASEDIR");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_IFDLIBDIR:
+			rv = CFGSetArg(opt, "IFD_PLUGIN_PATH", optarg, USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_IFDLIBDIR");
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case OPT_PORT:
+			rv = CFGSetArg(opt, "PORT_NUMBER", optarg, USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_PORT");
+				exit(EXIT_FAILURE);
+			}
+			break;
+		case OPT_VERBOSE:
+			rv = CFGSetArg(opt, "VERBOSE", optarg, USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_VERBOSE");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_TRANSPORT:
+			rv = CFGSetArg(opt, "TRANSPORT", optarg, USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_TRANSPORT");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_TIMEOUT:
+			rv = CFGSetArg(opt, "INSTANCE_TIMEOUT", optarg, USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_TIMEOUT");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_MAPFILE:
+			rv = CFGSetArg(opt, "MEMORY_USEMAPPED_FILE", optarg, USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_MAPFILE");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_USEMAPPED:
+			rv = CFGSetArg(opt, "USE_MAPPED_MEMORY", optarg, USER);
+			if (rv != CFG_SUCCESS) {
+				CFGperror(rv, "OPT_USEMAPPED");
+				exit(EXIT_FAILURE);
+			}
+			break;
+
+		case OPT_HELP:
+			usage(argv[0]);
+			return EXIT_SUCCESS;
+
+		case OPT_VERSION:
+			print_version();
+			return EXIT_SUCCESS;
+
+		case OPT_APDU:
+			DebugLogSetCategory(DEBUG_CATEGORY_APDU);
+			break;
+
+		case OPT_FOREGROUND:    /* Ignore (processed earlier) */
+		case OPT_STOPINST:      /* Ignore (processed earlier) */
+		case OPT_DISPLAY:       /* Ignore (processed earlier) */
+		case OPT_CONFIG:        /* Ignore (processed earlier) */
+		case OPT_LOGTYPE:       /* Ignore (processed earlier) */
+		case OPT_LOGLEVEL:      /* Ignore (processed earlier) */
+		case OPT_LOGFILE:       /* Ignore (processed earlier) */
+			break;
+		default:
+			usage (argv[0]);
 			return EXIT_FAILURE;
 		}
-#else
-		Log1(PCSC_LOG_CRITICAL,
-			"file " PCSCLITE_PUBSHM_FILE " already exists.");
-		Log1(PCSC_LOG_CRITICAL,
-			"Maybe another pcscd is running?");
-		Log1(PCSC_LOG_CRITICAL,
-			"Remove " PCSCLITE_PUBSHM_FILE " and " PCSCLITE_CSOCK_NAME);
-		Log1(PCSC_LOG_CRITICAL,
-			"if pcscd is not running to clear this message.");
-		return EXIT_FAILURE;
-#endif
 	}
 
+	if (argv[optind]) {
+		printf("Unknown option: %s\n\n", argv[optind]);
+		usage(argv[0]);
+		return EXIT_SUCCESS;
+	}
 	/*
-	 * If this is set to one the user has asked it not to fork 
+	 * Create subdirectory under specified base dir if
+	 * a wildcard was specified and set that as the new
+	 * base dir.
 	 */
-	if (!setToForeground)
-	{
-		if (SYS_Daemon(0, 0))
-			Log2(PCSC_LOG_CRITICAL, "SYS_Daemon() failed: %s",
-				strerror(errno));
+	if (pcscCfg.baseDir != NULL) {
+		if (pcscCfg.baseDirWild) {
+			char dpyNbr[6];
+			if (pcscCfg.dpyNbr == -1) {
+				Log1(PCSC_LOG_CRITICAL, "Undefined $DISPLAY");
+				return EXIT_FAILURE;
+			}
+			sprintf(dpyNbr, "%d", pcscCfg.dpyNbr);
+			CFGresolveWildcard(&pcscCfg.baseDir, dpyNbr);
+		}
+		rv = CFGEnsurePathExists(pcscCfg.baseDir);
+	}
+
+
+	chdir(pcscCfg.baseDir);
+
+	/*
+	 * These commands need to be deferred until this point
+	 * to allow all the options from the command line to be
+	 * provided, along with the loading of the configuration
+	 * file, and the overrides applied if any.
+	 */
+	if (pcscCfg.launchMode == INSTANCE) {
+		InitializeInstance();
+		exit(0);
 	}
 
 	/*
-	 * cleanly remove /tmp/pcsc when exiting 
+	 * Adjust port number by the wildcard specifier, if any.
+	 */
+	 if (pcscCfg.portNbrWild) {
+		    if (pcscCfg.dpyNbr == -1) {
+			  Log1(PCSC_LOG_CRITICAL, "Undefined $DISPLAY");
+			  return EXIT_FAILURE;
+		    }
+		    CFGresolveWildcard(&pcscCfg.portNbr,
+			(void *)pcscCfg.dpyNbr);
+	 }
+
+	/* If X display # exists, make available to IFD handlers */
+	if (pcscCfg.dpyNbr != -1) {
+		static char display[_POSIX_HOST_NAME_MAX + 15];
+		sprintf(display, "DISPLAY=:%d", pcscCfg.dpyNbr);
+		putenv(display);
+	}
+
+	/*
+	 * Adapt all of the server configuration file paths, assigning
+	 * a default value (based on header constants) to any path
+	 * unspecified by the administrator.
+	 *.
+	 * If a base directory was specified, adapt resultant filepaths
+	 * to be relative to it using the following method:
+	 *
+	 *   a. Unspecified files which were assigned default names in the
+	 *      first step are put into *default* subtree locations under
+	 *      the base dir.
+	 *
+	 *   b. Filepaths that were specified by the administrator are
+	 *      converted from absolute paths to relative paths under the
+	 *      base dir.
+	 *
+	 * Note: If the IFD library plugin dir is specified by the admin,
+	 *       it overrides any dir locations specified in readers.conf
+	 */
+	if (pcscCfg.readerConfigFile == NULL)
+		pcscCfg.readerConfigFile =
+		    CFGRetrofitPath(
+		       PCSCLITE_CONFIG_DIR "/reader.conf", "/etc");
+	else
+		pcscCfg.readerConfigFile =
+		    CFGRetrofitPath(pcscCfg.readerConfigFile, NULL);
+
+	if (pcscCfg.ifdPluginDir != NULL)
+		pcscCfg.ifdPluginDir =
+		    CFGRetrofitPath(pcscCfg.ifdPluginDir, NULL);
+
+	if (pcscCfg.useMappedMemory) {
+		if (pcscCfg.pcscdMemMappedFile == NULL)
+			pcscCfg.pcscdMemMappedFile =
+			    CFGRetrofitPath(PCSCLITE_PUBSHM_FILE, "/var/run");
+		else
+			pcscCfg.pcscdMemMappedFile =
+			CFGRetrofitPath(pcscCfg.pcscdMemMappedFile, NULL);
+	} else {
+		pcscCfg.pcscdMemMappedFile = NULL;
+	}
+
+	if (pcscCfg.transportType == SOCKET_UNIX ||
+	    pcscCfg.launchMode == LAUNCHER) {
+		if (pcscCfg.netBindFile == NULL) {
+			pcscCfg.netBindFile =
+			    CFGRetrofitPath(PCSCLITE_CSOCK_NAME, "/var/run");
+		} else {
+			pcscCfg.netBindFile =
+			    CFGRetrofitPath(pcscCfg.netBindFile, NULL);
+		}
+	}
+#ifdef USE_RUN_PID
+	if (pcscCfg.pcscdPIDFile == NULL) {
+		pcscCfg.pcscdPIDFile =
+		    CFGRetrofitPath(USE_RUN_PID, "/var/run");
+	} else {
+		pcscCfg.pcscdPIDFile =
+		    CFGRetrofitPath(pcscCfg.pcscdPIDFile, NULL);
+	}
+#endif
+	if (pcscCfg.launchMode == LAUNCHER) {
+		pcscCfg.readerConfigFile = NULL;
+		pcscCfg.ifdPluginDir = NULL;
+		pcscCfg.pcscdMemMappedFile = NULL;
+		pcscCfg.netBindFile = NULL;
+		pcscCfg.useMappedMemory = FALSE;
+	}
+
+	/*
+	 * Make sure directory exists for these files.
+	 * Depending on the paths configured by the admin, these
+	 * directories may overlap or even refer multiply to the
+	 * same directory, but it is harmless, since it won't create
+	 * directories that exist.
+	 */
+	if (pcscCfg.netBindFile != NULL) {
+		CFGEnsurePathExists(
+		    cp = SYS_Dirname(pcscCfg.netBindFile));
+		if (cp != NULL)
+			free(cp);
+	}
+
+	if (pcscCfg.useMappedMemory) {
+		CFGEnsurePathExists(
+		    cp = SYS_Dirname(pcscCfg.pcscdMemMappedFile));
+		if (cp != NULL)
+			free(cp);
+	}
+
+#ifdef USE_RUN_PID
+	if (pcscCfg.pcscdPIDFile != NULL) {
+		CFGEnsurePathExists(
+		    cp = SYS_Dirname(pcscCfg.pcscdPIDFile));
+		if (cp != NULL)
+			free(cp);
+	}
+#endif
+
+	CFGdumpCfg(NULL);
+
+	if (DoRunCheck() < 0)
+		return EXIT_FAILURE;
+
+	if (!pcscCfg.runInForeground) {
+		Daemonize();
+	}
+
+	/*
+	 * cleanly remove /tmp/pcsc when exiting
 	 */
 	signal(SIGQUIT, signal_trap);
 	signal(SIGTERM, signal_trap);
-	signal(SIGINT, signal_trap);
-	signal(SIGHUP, signal_trap);
+	signal(SIGINT,  signal_trap);
 
 #ifdef USE_RUN_PID
 	/*
-	 * Record our pid to make it easier
-	 * to kill the correct pcscd
+	 * Record our pid to make it easier to kill the correct pcscd
 	 */
 	{
 		FILE *f;
-
-		if ((f = fopen(USE_RUN_PID, "wb")) != NULL)
+		if ((f = fopen(pcscCfg.pcscdPIDFile, "wb")) != NULL)
 		{
 			fprintf(f, "%u\n", (unsigned) getpid());
 			fclose(f);
@@ -398,84 +801,47 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	/*
-	 * If PCSCLITE_IPC_DIR does not exist then create it
-	 */
-	rv = SYS_Stat(PCSCLITE_IPC_DIR, &fStatBuf);
-	if (rv < 0)
-	{
-		rv = SYS_Mkdir(PCSCLITE_IPC_DIR, S_ISVTX | S_IRWXO | S_IRWXG | S_IRWXU);
-		if (rv != 0)
-		{
-			Log2(PCSC_LOG_CRITICAL,
-				"cannot create " PCSCLITE_IPC_DIR ": %s", strerror(errno));
-			return EXIT_FAILURE;
-		}
+	if (pcscCfg.launchMode == LAUNCHER) {
+		Init = FALSE;
+		Launcher(pcscCfg.portNbr);
+		return 0;
 	}
 
 	/* cleanly remove /var/run/pcsc.* files when exiting */
 	if (atexit(at_exit))
-		Log2(PCSC_LOG_CRITICAL, "atexit() failed: %s", strerror(errno));
+		Log2(PCSC_LOG_CRITICAL,
+		     "atexit() failed: %s", strerror(errno));
+
+	RFAllocateReaderSpace(); // Allocate memory for reader structs
 
 	/*
-	 * Allocate memory for reader structures 
+	 * Grab the information from the reader.conf
 	 */
-	RFAllocateReaderSpace();
-
-	/*
-	 * Grab the information from the reader.conf 
-	 */
-	if (newReaderConfig)
-	{
-		rv = RFStartSerialReaders(newReaderConfig);
-		if (rv != 0)
-		{
-			Log3(PCSC_LOG_CRITICAL, "invalid file %s: %s", newReaderConfig,
-				strerror(errno));
+	if (pcscCfg.readerConfigFile) {
+		if ( RFStartSerialReaders(pcscCfg.readerConfigFile) != 0) {
+			Log3(PCSC_LOG_CRITICAL,
+			     "Invalid reader config file:\n%s: %s",
+			     pcscCfg.readerConfigFile, strerror(errno));
 			at_exit();
 		}
 	}
-	else
-	{
-		rv = RFStartSerialReaders(PCSCLITE_READER_CONFIG);
-
-#if 0
-		if (rv == 1)
-		{
-			Log1(PCSC_LOG_INFO,
-				"warning: no " PCSCLITE_READER_CONFIG " found");
-			/*
-			 * Token error in file 
-			 */
-		}
-		else
-#endif
-			if (rv == -1)
-				at_exit();
-	}
-
 	/*
-	 * Set the default globals 
+	 * Set the default globals
 	 */
-	g_rgSCardT0Pci.dwProtocol = SCARD_PROTOCOL_T0;
-	g_rgSCardT1Pci.dwProtocol = SCARD_PROTOCOL_T1;
+	g_rgSCardT0Pci.dwProtocol  = SCARD_PROTOCOL_T0;
+	g_rgSCardT1Pci.dwProtocol  = SCARD_PROTOCOL_T1;
 	g_rgSCardRawPci.dwProtocol = SCARD_PROTOCOL_RAW;
 
-	Log1(PCSC_LOG_INFO, "pcsc-lite " VERSION " daemon ready.");
+	Log1(PCSC_LOG_DEBUG, "pcsc-lite " VERSION " daemon ready.");
 
+	Init = FALSE;  // Post initialization
 	/*
-	 * post initialistion 
-	 */
-	Init = FALSE;
-
-	/*
-	 * signal_trap() does just set a global variable used by the main loop 
+	 * signal_trap() merely sets a global var, used by main loop
 	 */
 	signal(SIGQUIT, signal_trap);
 	signal(SIGTERM, signal_trap);
-	signal(SIGINT, signal_trap);
-	signal(SIGHUP, signal_trap);
-
+	signal(SIGINT,  signal_trap);
+	signal(SIGHUP,  signal_trap);
 	signal(SIGUSR1, signal_reload);
 
 	SVCServiceRunLoop();
@@ -484,93 +850,415 @@ int main(int argc, char **argv)
 	return EXIT_FAILURE;
 }
 
-void at_exit(void)
+void
+Daemonize()
 {
-	Log1(PCSC_LOG_INFO, "cleaning " PCSCLITE_IPC_DIR);
+	int si, so, se;
 
-	clean_temp_files();
+	Log2(PCSC_LOG_DEBUG,
+		"Sending daemon to background: %d\n",getpid());
+	/*
+	* First fork guarantees we're not process group leader.
+	*/
+	switch(fork()) {
+	case 0:
+		break;
+	case -1:
+		fprintf(stderr, "Bad fork: %s\n", strerror(errno));
+	default:
+		exit(0);
+	}
+	setsid(); // Become session leader w/o controlling tty
+	/*
+	 * 2nd fork - allow session leader to exit.
+	 * Now we        are forever detached from a controlling tty.
+	 */
+	switch(fork()) {
+	case 0:
+		break;
+	case -1:
+		fprintf(stderr, "Bad fork: %s\n", strerror(errno));
+	default:
+		exit(0);
+	}
+	/*
+	 * Assign sysin, sysout, syserr to mute (leaving them
+	 * closed is bad practice).  They can be connected to
+	 * other source or targets subsequently, depending on
+	 * configuration settings.
+	 */
+	if ((si = open("/dev/null", O_RDWR)) >= 0)
+		dup2(si, 0);
 
-	SYS_Exit(EXIT_SUCCESS);
+	if ((so = open("/dev/null", O_RDWR)) >= 0)
+		dup2(si, 1);
+
+	if ((se = open("/dev/null", O_RDWR)) >= 0)
+		dup2(si, 2);
+
+	chdir(pcscCfg.baseDir);
+
 }
 
-void clean_temp_files(void)
+void
+ChkVersion()
+{
+	if (strcmp(PCSCLITE_VERSION_NUMBER, VERSION) != 0) {
+		printf("BUILD ERROR: The release version "
+		       "number PCSCLITE_VERSION_NUMBER\n");
+		printf("  in pcsclite.h (%s) does not match "
+		       "the release version number\n",
+			PCSCLITE_VERSION_NUMBER);
+		printf("  generated in config.h (%s) (see "
+		       "configure.in).\n", VERSION);
+		exit(EXIT_FAILURE);
+	}
+}
+
+int
+DoRunCheck()
 {
 	int rv;
+	struct stat fStatBuf;
+	/*
+	 * Test the presence of file that flags that the daemon is running.
+	 * Default for single instance server is /var/run/pcsc.pub
+	 */
+	rv = SYS_Stat(pcscCfg.netBindFile, &fStatBuf);
 
-	rv = SYS_Unlink(PCSCLITE_PUBSHM_FILE);
-	if (rv != 0)
-		Log2(PCSC_LOG_ERROR, "Cannot unlink " PCSCLITE_PUBSHM_FILE ": %s",
-			strerror(errno));
-
-	rv = SYS_Unlink(PCSCLITE_CSOCK_NAME);
-	if (rv != 0)
-		Log2(PCSC_LOG_ERROR, "Cannot unlink " PCSCLITE_CSOCK_NAME ": %s",
-			strerror(errno));
-
+	if (SYS_Stat(pcscCfg.pcscdMemMappedFile, &fStatBuf) == 0)
+	{
 #ifdef USE_RUN_PID
-	rv = SYS_Unlink(USE_RUN_PID);
-	if (rv != 0)
-		Log2(PCSC_LOG_ERROR, "Cannot unlink " USE_RUN_PID ": %s",
-			strerror(errno));
+/* pids are only 15 bits but 4294967296
+ * (32 bits in case of a new system use it) is on 10 bytes
+ */
+#define PID_ASCII_SIZE 11
+
+		/* Read pid file to get the old pid and test
+		 * if the old pcscd is still running
+		 */
+		FILE *f;
+		char pid_ascii[PID_ASCII_SIZE];
+		int pid;
+
+		if ((f = fopen(pcscCfg.pcscdPIDFile, "rb")) != NULL) {
+			fgets(pid_ascii, PID_ASCII_SIZE, f);
+			fclose(f);
+
+			pid = atoi(pid_ascii);
+
+			if (kill(pid, 0) == 0)  {
+				Log3(PCSC_LOG_CRITICAL,
+				     "File %s already exists.\nAnother"
+				     "pcscd (pid: %d) seems to be running.",
+				     pcscCfg.pcscdMemMappedFile, pid);
+				return -1;
+			} else
+				CleanTempFiles();  //Prev pcscd is gone
+		} else {
+			char buf[LINEMAX];
+			sprintf(buf,
+			    "File %s already exists.\nMaybe another pcscd "
+			    " is running?\nCan't read process pid from %s\n"
+			    "Remove %s  %s\nif pcscd is not running, "
+			    "to clear this message.",
+				    NONULL(pcscCfg.pcscdMemMappedFile),
+				    rv < 0 ? "" : NONULL(pcscCfg.netBindFile),
+				    pcscCfg.pcscdMemMappedFile,
+				    pcscCfg.pcscdPIDFile);
+			Log2(PCSC_LOG_CRITICAL, "%s", buf);
+			return -1;
+		}
+#else
+		Log4(PCSC_LOG_CRITICAL,
+		    "File %s already exists.\nMaybe another pcscd is "
+		    "running?\nRemove %s   %s\nif pcscd is not running,"
+		    "to clear this message.",
+		       pcscCfg.pcscdMemMappedFile,
+		       NONULL(pcscCfg.pcscdMemMappedFile),
+		       rv < 0 ? "" : NONULL(pcscCfg.netBindFile));
+		return -1;
 #endif
+
+	}
+	return 0;
 }
 
-void signal_reload(int sig)
+void
+CFGSetupLogging()
 {
-	Log1(PCSC_LOG_INFO, "Reload serial configuration");
+	switch (pcscCfg.logType) {
+	case STDERR:
+		DebugLogSetLogType(DEBUGLOG_STDERR_DEBUG);
+		break;
+	case SYSLOG:
+		DebugLogSetLogType(DEBUGLOG_SYSLOG_DEBUG);
+		break;
+	default:
+		DebugLogSetLogType(DEBUGLOG_STDERR_DEBUG);
+
+	}
+
+	switch (pcscCfg.logLevel) {
+	case DEBUG:
+		DebugLogSetLevel(PCSC_LOG_DEBUG);
+		break;
+	case INFO:
+		DebugLogSetLevel(PCSC_LOG_DEBUG);
+		break;
+	case ERROR:
+		DebugLogSetLevel(PCSC_LOG_ERROR);
+		break;
+	case CRITICAL:
+		DebugLogSetLevel(PCSC_LOG_CRITICAL);
+		break;
+	default:
+		DebugLogSetLevel(PCSC_LOG_DEBUG);
+
+	}
+}
+
+void
+CFGStdOutErr(char *filename)
+{
+	if (filename != NULL && strlen(filename) > 0) {
+		int fd;
+		DebugLogSetLogType(DEBUGLOG_STDERR_DEBUG);
+		if ((fd = open(filename, O_WRONLY | O_CREAT | O_APPEND | O_SYNC,
+		    S_IRWXU)) < 0) {
+			fprintf(stderr, "Error opening logfile %s: %s",
+			    pcscCfg.logFile, strerror(errno));
+		}
+		dup2(fd, 1);
+		dup2(fd, 2);
+	}
+}
+
+/*
+ * Cleans up messages still on the queue when a client dies
+ */
+void
+SVCClientCleanup(psharedSegmentMsg msgStruct)
+{
+	/*
+	 * May be implemented in future releases
+	 */
+}
+
+void
+at_exit(void)
+{
+	Log1(PCSC_LOG_DEBUG, "Cleaning per-instance files\n");
+	CleanTempFiles();
+}
+
+void
+CleanTempFiles(void)
+{
+	int rv;
+#ifdef USE_RUN_PID
+	if (pcscCfg.launchMode == LAUNCHER) {
+		rv = CFGRmPath(pcscCfg.pcscdPIDFile);
+		if (rv != CFG_SUCCESS) {
+			Log3(PCSC_LOG_DEBUG, "Cannot unlink %s:\n%s",
+			    pcscCfg.pcscdPIDFile, strerror(errno));
+		}
+	}
+#endif
+
+	/*
+	 * Clean up the network binding file if
+	 * the transport type indicates that one
+	 * was required.
+	 */
+	switch(pcscCfg.transportType) {
+	case SOCKET_UNIX:
+		rv = CFGRmPath(pcscCfg.netBindFile);
+		if (rv != CFG_SUCCESS) {
+			Log3(PCSC_LOG_DEBUG, "Cannot unlink %s:\n%s",
+			    pcscCfg.pcscdPIDFile, strerror(errno));
+		}
+		break;
+	default:
+		break;
+	}
+
+	if (pcscCfg.useMappedMemory) {
+		rv = CFGRmPath(pcscCfg.pcscdMemMappedFile);
+		if (rv != CFG_SUCCESS) {
+			Log3(PCSC_LOG_DEBUG, "Cannot unlink %s:\n%s",
+			    pcscCfg.pcscdPIDFile, strerror(errno));
+		}
+	}
+}
+
+void
+signal_reload(int sig) {
+	Log1(PCSC_LOG_DEBUG, "Reload serial configuration");
 	HPReCheckSerialReaders();
-} /* signal_reload */
+}
 
-void signal_trap(int sig)
+
+void
+signal_trap(int sig)
 {
-	/* the signal handler is called several times for the same Ctrl-C */
-	if (AraKiri == FALSE)
-	{
-		Log1(PCSC_LOG_INFO, "Preparing for suicide");
+	/* Signal handler is called several times for the same Ctrl-C */
+	if (AraKiri == FALSE)  {
+		Log1(PCSC_LOG_DEBUG, "Preparing for suicide");
 		AraKiri = TRUE;
-
-		/* if still in the init/loading phase the AraKiri will not be
-		 * seen by the main event loop
+		/* If still in the init/loading phase
+		 * AraKiri flag won't be seen by main event loop
 		 */
-		if (Init)
-		{
-			Log1(PCSC_LOG_INFO, "Suicide during init");
+		if (Init) {
+			Log1(PCSC_LOG_DEBUG, "Suicide during init");
 			at_exit();
 		}
 	}
 }
 
-void print_version (void)
+void
+print_version (void)
 {
-	printf("%s version %s.\n",  PACKAGE, VERSION);
-	printf("Copyright (C) 1999-2002 by David Corcoran <corcoran@linuxnet.com>.\n");
-	printf("Copyright (C) 2001-2005 by Ludovic Rousseau <ludovic.rousseau@free.fr>.\n");
-	printf("Copyright (C) 2003-2004 by Damien Sauveron <sauveron@labri.fr>.\n");
-	printf("Report bugs to <sclinux@linuxnet.com>.\n");
+	printf("%s version %s_%s.\n",  PACKAGE, VERSION, BUILD);
+	printf("Copyright (C) 2007-2008 by Sun Microsystems, Inc.\n");
+	printf("Copyright (C) 2003-2004 "
+	       "by Damien Sauveron <sauveron@labri.fr>.\n");
+	printf("Copyright (C) 2001-2005 "
+	       "by Ludovic Rousseau <ludovic.rousseau@free.fr>.\n");
+	printf("Copyright (C) 1999-2002 "
+	       "by David Corcoran <corcoran@linuxnet.com>.\n");
+//	printf("Report bugs to <sclinux@linuxnet.com>.\n");
 }
 
-void print_usage (char const * const progname)
+char
+*getLongOptName(int opt)
 {
-	printf("Usage: %s options\n", progname);
-	printf("Options:\n");
-#ifdef HAVE_GETOPT_LONG
-	printf("  -a, --apdu		log APDU commands and results\n");
-	printf("  -c, --config		path to reader.conf\n");
-	printf("  -f, --foreground	run in foreground (no daemon),\n");
-	printf("			send logs to stderr instead of syslog\n");
-	printf("  -h, --help		display usage information\n");
-	printf("  -v, --version		display the program version number\n");
-	printf("  -d, --debug	 	display lower level debug messages\n"); 
-	printf("      --info	 	display info level debug messages (default level)\n"); 
-	printf("  -e  --error	 	display error level debug messages\n"); 
-	printf("  -C  --critical 	display critical only level debug messages\n"); 
-#else
-	printf("  -a    log APDU commands and results\n");
-	printf("  -c 	path to reader.conf\n");
-	printf("  -f	run in foreground (no daemon), send logs to stderr instead of syslog\n");
-	printf("  -d 	display debug messages. Output may be:\n"); 
-	printf("  -h 	display usage information\n");
-	printf("  -v 	display the program version number\n");
-#endif
+	int i;
+	for (i = 0; longOpts[i].name != NULL; i++)
+		if (longOpts[i].val == opt)
+			return longOpts[i].name;
+	return "";
 }
+
+void
+usage(char const * const progname)
+{
+	int i;
+	printf("\n Usage: %s options\n\n",
+		(char *)SYS_Basename((char *)progname));
+
+	ListInvocationModes();
+	printf("   Options:\n\n");
+
+#ifdef HAVE_GETOPT_LONG
+	for (i = 0; usageMsgs[i].usage != NULL; i++)
+		printf("       -%c   --%-14s   %s\n", usageMsgs[i].opt,
+		   getLongOptName(usageMsgs[i].opt), usageMsgs[i].usage);
+
+#else
+	for (i = 0; usageMsgs[i].usage != NULL; i++)
+		printf("       -%c   %s\n", usageMsgs[i].opt,
+		   usageMsgs[i].usage);
+#endif
+	printf("\n");
+}
+
+/*
+ * The function formats the usage arguments so that they will be displayed
+ * well if the valid argument counts, names and values change.
+ */
+void
+ListInvocationModes()
+{
+	char buf[LINEMAX], arg[10], *cp, *c2;
+	int i, j, k, reqFlag = 0, loopedBack;
+	for (i = 0; invocationModes[i].name != NULL; i++) {
+		struct invocation *invoked = &invocationModes[i];
+		column = 1;
+		printWrap("   pcscd ");
+		for (j = 0; invoked->optList[j] != 0; j++) {
+			int opt = invoked->optList[j];
+			bzero(buf, sizeof (buf));
+			if (j > 0)
+				strcat(buf, "  ");
+			else if (opt > 0)
+				strcat(buf, "    ");
+			if (opt > 0) {
+				reqFlag = 0;
+				strcat(buf, "[ ");
+			} else {
+				reqFlag = 1;
+				opt = -opt;
+			}
+
+			sprintf(arg, "-%c", opt);
+			strcat(buf, arg);
+			for (k = 0; paramDesc[k].opt != 0; k++) {
+			     struct paramDescriptions *pd = &paramDesc[k];
+			     if (pd->opt == opt) {
+				     if (pd->text != NULL) {
+					     strcat(buf, " ");
+					     strcat(buf, pd->text);
+				     } else if (pd->cfgvar != NULL) {
+					     strcat(buf, " {");
+					     cp = CFGListConstants(pd->cfgvar);
+					     c2 = strtok(cp, ",");
+					     loopedBack = 0;
+					     while(c2 != NULL) {
+						     if (loopedBack)
+							 strcat(buf, " | ");
+						     strcat(buf, c2);
+						     printWrap(buf);
+						     c2 = strtok(0, ",");
+						     bzero(buf, sizeof (buf));
+						     loopedBack = 1;
+					     }
+					     printWrap("}");
+				     }
+			     }
+			}
+			if (!reqFlag)
+				strcat(buf, " ]");
+			printWrap(buf);
+		}
+		printWrap("\n\n");
+	}
+
+}
+
+void
+printWrap(const char *fmt, ...) {
+	char buf[LINEMAX], *cp;
+	int len;
+	va_list ap;
+
+	va_start(ap, fmt);
+
+#ifndef WIN32
+	vsnprintf(buf, LINEMAX, fmt, ap);
+#else
+#if HAVE_VSNPRINTF
+	vsnprintf(buf, LINEMAX, fmt, ap);
+#else
+	vsprintf(buf, fmt, argptr);
+#endif
+#endif
+	va_end(ap);
+	if ((cp = strrchr(buf, '\n')) != NULL)
+		len = strlen(cp + 1);
+	else
+		len = strlen(buf);
+
+	column += len;
+	if (column > 55) {
+		printf("\n           ");
+		column = 13;
+		if (*buf == ' ' && buf[1] == '|') {
+			printf("     ...");
+			column += 9;
+		}
+	}
+	printf(buf);
+}
+
 

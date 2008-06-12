@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<!DOCTYPE service_bundle SYSTEM "/usr/share/lib/xml/dtd/service_bundle.dtd.1">
+<!--
+	Copyright 2007 Sun Microsystems, Inc. All Rights Reserved
+	
+	Service that manages PCSClite pcscd instance-launcher
+
+-->
+
+<service_bundle type='manifest' name='PCSClite:pcscd'>
+
+    <service
+	name='application/security/pcscd' type='service' version='1'>
+
+	<create_default_instance enabled='true' />
+
+        <dependency name='multi-user'
+            grouping='require_all'
+            restart_on='error'
+            type='service'>
+                <service_fmri value='svc:/milestone/multi-user:default'/>
+        </dependency>
+
+	<exec_method
+		type='method'
+		name='start'
+		exec='/lib/svc/method/pcscd-svc start'
+		timeout_seconds='0'/>
+
+	<exec_method
+		type='method'
+		name='stop'
+		exec='/lib/svc/method/pcscd-svc stop'
+		timeout_seconds='0'/>
+    </service>
+
+</service_bundle>

@@ -1,0 +1,17 @@
+#
+# ident "@(#)depend.src 1.1 04/01/19 SMI"
+#
+# Copyright 2004 Sun Microsystems, Inc.  All rights reserved.
+#
+# P     prerequisite  for installation
+# I     incompatible package
+# R     reverse dependency, package depends on me
+
+I SUNWsrcbp
+I SUNWocfd
+I SUNWocfh
+I SUNWocfr
+I SUNWpcsclite
+I SUNWpcsclite-devel
+I SUNWjcom
+

@@ -18,6 +18,11 @@
 #ifndef __winscard_msg_h__
 #define __winscard_msg_h__
 
+#include <netdb.h>
+#include "clientcred.h"
+#include "readerfactory.h"
+#include "eventhandler.h"
+
 /** Major version of the current message protocol */
 #define PROTOCOL_VERSION_MAJOR 2
 /** Minor version of the current message protocol */
@@ -52,6 +57,7 @@ extern "C"
 	}
 	sharedSegmentMsg, *psharedSegmentMsg;
 
+
 	/**
 	 * Command types available to use in the field \c sharedSegmentMsg.mtype.
 	 */
@@ -64,7 +70,8 @@ extern "C"
 		CMD_READER_EVENT = 0xF5,
 		CMD_SYN = 0xF6,
 		CMD_ACK = 0xF7,
-		CMD_VERSION = 0xF8
+		CMD_VERSION = 0xF8,
+		CMD_FETCH = 0xF9
 	};
 
 	/**
@@ -88,8 +95,29 @@ extern "C"
 		SCARD_CANCEL_TRANSACTION = 0x0E,
 		SCARD_GET_ATTRIB = 0x0F,
 		SCARD_SET_ATTRIB = 0x10,
-		SCARD_TRANSMIT_EXTENDED = 0x11
+		SCARD_TRANSMIT_EXTENDED = 0x11,
+		FETCH_READER_STATE = 0x12
 	};
+
+
+	/**
+	 * @brief Information transmitted in \c CMD_VERSION Messages.
+	 */
+	struct fetch_struct
+	{       union {
+			struct {
+				size_t size;
+				void *addr;
+			} mem;
+			unsigned int index;
+
+		} type;
+		unsigned char
+		     data[PCSCLITE_MAX_MESSAGE_SIZE - 256];
+		LONG rv;
+	};
+	typedef struct fetch_struct fetch_struct;
+
 
 	/**
 	 * @brief Information transmitted in \c CMD_VERSION Messages.
@@ -102,12 +130,6 @@ extern "C"
 	};
 	typedef struct version_struct version_struct;
 
-	struct client_struct
-	{
-		SCARDCONTEXT hContext;
-	};
-	typedef struct client_struct client_struct;
-
 	/**
 	 * @brief Information contained in \c SCARD_ESTABLISH_CONTEXT Messages.
 	 *
@@ -118,6 +140,10 @@ extern "C"
 		DWORD dwScope;
 		SCARDCONTEXT phContext;
 		LONG rv;
+		in_addr_t clientXhostIP;
+		LONG dpyNbr;
+		LONG screenNbr;
+
 	};
 	typedef struct establish_struct establish_struct;
 
@@ -266,7 +292,7 @@ extern "C"
 		DWORD pcbRecvLength;
 		LONG rv;
 		size_t size;
-		BYTE data[0];
+		BYTE data[1];
 	};
 	typedef struct transmit_struct_extended transmit_struct_extended;
 
@@ -304,15 +330,20 @@ extern "C"
 	typedef struct getset_struct getset_struct;
 
 	/*
-	 * Now some function definitions 
+	 * Now some function definitions
 	 */
 
+	int SHMrpc(unsigned int, DWORD, void *, unsigned int);
+	int SHMping();
+	int SHMCheckProtocolVersion(int, int, DWORD);
+	int SHMfetchReaderState(PREADER_STATE, unsigned int, DWORD);
 	int SHMClientRead(psharedSegmentMsg, DWORD, int);
 	int SHMClientSetupSession(PDWORD);
 	int SHMClientCloseSession(DWORD);
 	int SHMInitializeCommonSegment(void);
-	int SHMProcessEventsContext(PDWORD, psharedSegmentMsg, int);
+	int SHMProcessEventsContext(PDWORD, DWORD, psharedSegmentMsg, int);
 	int SHMProcessEventsServer(PDWORD, int);
+	int SHMGetClientCreds(int, PCSCLITE_CRED_T *);
 	int SHMMessageSend(void *buffer, size_t buffer_size, int filedes,
 		int blockAmount);
 	int SHMMessageReceive(void *buffer, size_t buffer_size,

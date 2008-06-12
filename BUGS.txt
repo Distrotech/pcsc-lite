@@ -1,0 +1,5 @@
+There are some known bugs in this version.  Most are minor or corner cases or clean-up.  Some issues with 3rd party stacks have shown up, and some issues running as an RDP client of Microsoft Windows that are being worked on.
+
+There is currently an issue with USB enumeration delays affecting some 3rd party applications that are not sufficiently hotplug-aware or 'hotplug robust', and some sort of architectural workaround for that will probably need to be created.  For example if an application performs the first SCardEstablishContext() that results in a new instance being started, and the application very quickly calls SCardListReaders(), the application may miss some of the readers as the USB bus may not have had time to fully enumerate.
+
+USB enumeration delays currently impact session mobility on Sun Ray thin client network when the CCID handler is being used, and also can affect applications when pcscd instances are restarted after self-termination timeout after the default idle period has elapsed.

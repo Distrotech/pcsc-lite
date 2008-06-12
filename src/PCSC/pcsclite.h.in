@@ -102,6 +102,7 @@ extern SCARD_IO_REQUEST g_rgSCardT0Pci, g_rgSCardT1Pci,
 #define SCARD_E_CARD_UNSUPPORTED	0x8010001C
 #define SCARD_E_NO_SERVICE		0x8010001D
 #define SCARD_E_SERVICE_STOPPED		0x8010001E
+#define SCARD_E_NO_PERMISSION		0x80100020
 
 #define SCARD_SCOPE_USER		0x0000	/**< Scope in user space */
 #define SCARD_SCOPE_TERMINAL		0x0001	/**< Scope in terminal */
@@ -161,6 +162,8 @@ extern SCARD_IO_REQUEST g_rgSCardT0Pci, g_rgSCardT1Pci,
 #define BLOCK_STATUS_BLOCKING		0x00FA	/**< Function is blocking */
 
 #define PCSCLITE_CONFIG_DIR		"@confdir_exp@"
+#define XSERVERS_FILE			"@xservers_file_exp@"
+#define PCSCLITE_LIB_DIR		"@rtlibdir_exp@"
 
 #ifndef USE_IPCDIR
 #define PCSCLITE_IPC_DIR		"/var/run"
@@ -209,6 +212,7 @@ extern SCARD_IO_REQUEST g_rgSCardT0Pci, g_rgSCardT1Pci,
 #define PCSCLITE_TRANSACTION_TIMEOUT	40	/**< Transaction timeout */
 #define MAX_READERNAME			52
 #define MAX_LIBNAME			100
+#define MAX_AUTHSVCNAME			255	
 #define MAX_DEVICENAME		255
 
 #ifndef SCARD_ATR_LENGTH

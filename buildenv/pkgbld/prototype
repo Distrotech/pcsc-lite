@@ -1,0 +1,58 @@
+i pkginfo
+i depend
+i preinstall
+i postinstall
+i preremove
+
+d none lib ??? root bin
+d none lib/svc ??? root bin
+d none lib/svc/method ??? root bin
+
+d none var ??? root bin
+d none var/svc ??? root bin
+d none var/svc/manifest ??? root bin
+d none var/svc/manifest/application ??? root bin
+d none var/svc/manifest/application/security ??? root bin
+
+d none etc ??? root bin
+d none etc/smartcard 755 root bin
+
+d none usr ??? root bin
+d none usr/lib ??? root bin
+d none usr/lib/smartcard 755 root bin
+
+d none usr/include ??? root bin
+d none usr/include/smartcard 755 root bin
+
+f none var/svc/manifest/application/security/pcscd.xml=smf/pcscd.xml 0444 root sys
+f none lib/svc/method/pcscd-svc=smf/pcscd-svc 0555 root bin
+
+f none usr/lib/smartcard/pcscd=usr/lib/smartcard/pcscd 0555 root bin
+f none usr/lib/smartcard/pcscd-Local=usr/lib/smartcard/pcscd-Local 0555 root bin
+f none usr/lib/smartcard/ifdAuth.so.1=usr/lib/libIfdAuth.so.0.0.0 0555 root bin
+f none usr/lib/smartcard/pcscdAuth-Local.so.1=usr/lib/libPcscdAuth.so.0.0.0 0555 root bin
+f none usr/lib/smartcard/pcscdValidate.so.1=usr/lib/libValidate.so.0.0.0 0555 root bin
+
+f none usr/lib/pkgconfig/libpcsclite.pc=usr/lib/pkgconfig/libpcsclite.pc 0555 root bin
+
+f none usr/lib/64/libpcsclite.so.1=usr/lib/libpcsclite64.so.1.0.0 0555 root bin
+f none usr/lib/libpcsclite.so.1=usr/lib/libpcsclite.so.1.0.0 0555 root bin
+
+s none usr/lib/64/libpcsclite.so=libpcsclite.so.1 0755 root bin
+s none usr/lib/libpcsclite.so=libpcsclite.so.1 0755 root bin
+
+f none etc/smartcard/pcscd.conf=etc/smartcard/pcscd.conf 0644 root bin
+f none etc/smartcard/pcscd-Local.conf=etc/smartcard/pcscd-Local.conf 0644 root bin
+f none usr/lib/smartcard/pcscd_validate.conf=usr/share/doc/smartcard/pcscd_validate.conf 0644 root bin
+f none usr/include/smartcard/clientcred.h=usr/include/smartcard/PCSC/clientcred.h 0644 root bin
+f none usr/include/smartcard/debuglog.h=usr/include/smartcard/PCSC/debuglog.h 0644 root bin
+f none usr/include/smartcard/debug.h=usr/include/smartcard/debug.h 0644 root bin
+f none usr/include/smartcard/ifdhandler.h=usr/include/smartcard/PCSC/ifdhandler.h 0644 root bin
+f none usr/include/smartcard/pcsclite.h=usr/include/smartcard/PCSC/pcsclite.h 0644 root bin
+f none usr/include/smartcard/reader.h=usr/include/smartcard/PCSC/reader.h 0644 root bin
+f none usr/include/smartcard/winscard.h=usr/include/smartcard/PCSC/winscard.h 0644 root bin
+f none usr/include/smartcard/wintypes.h=usr/include/smartcard/PCSC/wintypes.h 0644 root bin
+f none usr/include/smartcard/pcscd-validate.h=usr/include/smartcard/PCSC/pcscd-validate.h 0644 root bin
+f none usr/include/smartcard/pcscd-auth.h=usr/include/smartcard/PCSC/pcscd-auth.h 0644 root bin
+f none usr/include/smartcard/ifd-auth.h=usr/include/smartcard/PCSC/ifd-auth.h 0644 root bin
+

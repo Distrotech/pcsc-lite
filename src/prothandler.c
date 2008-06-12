@@ -126,7 +126,7 @@ DWORD PHSetProtocol(struct ReaderContext * rContext,
 			/* App wants unsupported protocol */
 			return SET_PROTOCOL_WRONG_ARGUMENT;
 
-	Log2(PCSC_LOG_INFO, "Attempting PTS to T=%d",
+	Log2(PCSC_LOG_DEBUG, "Attempting PTS to T=%d",
 		(SCARD_PROTOCOL_T0 == ucChosen ? 0 : 1));
 	rv = IFDSetPTS(rContext, ucChosen, 0x00, 0x00, 0x00, 0x00);
 
@@ -134,15 +134,15 @@ DWORD PHSetProtocol(struct ReaderContext * rContext,
 		protocol = ucChosen;
 	else
 		if (IFD_NOT_SUPPORTED == rv)
-			Log2(PCSC_LOG_INFO, "PTS not supported by driver, using T=%d",
+			Log2(PCSC_LOG_DEBUG, "PTS not supported by driver, using T=%d",
 				(SCARD_PROTOCOL_T0 == protocol) ? 0 : 1);
 		else
 			if (IFD_PROTOCOL_NOT_SUPPORTED == rv)
-				Log2(PCSC_LOG_INFO, "PTS protocol not supported, using T=%d",
+				Log2(PCSC_LOG_DEBUG, "PTS protocol not supported, using T=%d",
 					(SCARD_PROTOCOL_T0 == protocol) ? 0 : 1);
 			else
 			{
-				Log3(PCSC_LOG_INFO, "PTS failed (%d), using T=%d", rv,
+				Log3(PCSC_LOG_DEBUG, "PTS failed (%d), using T=%d", rv,
 					(SCARD_PROTOCOL_T0 == protocol) ? 0 : 1);
 
 				/* ISO 7816-3:1997 ch. 7.2 PPS protocol page 14

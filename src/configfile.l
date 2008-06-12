@@ -16,6 +16,7 @@
 #include "readerfactory.h"
 #include "configfile.h"
 
+
 int evaluatetoken(char *pcToken);
 
 static int iLinenumber;
@@ -23,6 +24,7 @@ static char *pcPrevious;
 static char *pcCurrent;
 static char *pcFriendlyname;
 static char *pcDevicename;                
+static char *pcAuthSvcName;
 static char *pcLibpath;
 static char *pcChannelid;
 static int badError;
@@ -113,6 +115,32 @@ int evaluatetoken(char *pcToken)
 				return 1;
 			}
 		}
+		else if (strcmp(pcPrevious, "AUTHSERVICE") == 0)
+		{
+			if (pcAuthSvcName == NULL)
+			{
+                                if (strlen(pcCurrent) > 255) {
+                                        Log2(PCSC_LOG_CRITICAL, 
+                                             "ERROR: AUTH Service Name > 255 chars: %s\n", 
+                                                pcCurrent);
+				        badError = 1;
+                                }
+                                pcAuthSvcName = malloc(strlen(pcCurrent) - 1);
+				for (n = 0; n < strlen(pcCurrent); n++)
+				{
+					if (pcCurrent[n] != '"')
+					{			/* Strip off the quotes */
+						pcAuthSvcName[p++] = pcCurrent[n];
+					}
+				}
+				pcAuthSvcName[p++] = '\0';
+			}
+			else
+			{
+				tok_error(pcPrevious);
+				return 1;
+			}
+		}
 		else if (strcmp(pcPrevious, "LIBPATH") == 0)
 		{
 			if (pcLibpath == NULL)
@@ -120,7 +148,8 @@ int evaluatetoken(char *pcToken)
 				struct stat fStatBuf;
 
 				pcLibpath = strdup(pcCurrent);
-				if (SYS_Stat(pcLibpath, &fStatBuf) != 0)
+				if (strcmp(SYS_Dirname(pcLibpath), ".") != 0 &&
+                                     SYS_Stat(pcLibpath, &fStatBuf) != 0)
 				{
 					Log3(PCSC_LOG_CRITICAL, "Error with library %s: %s",
 						pcLibpath, strerror(errno));
@@ -161,7 +190,7 @@ int evaluatetoken(char *pcToken)
 	}
 
 	if (pcFriendlyname != NULL && pcDevicename != NULL &&
-		pcLibpath != NULL && pcChannelid != NULL && badError != 1)
+		pcLibpath != NULL &&  pcAuthSvcName != NULL && badError != 1)
 	{
 		if (0 == reader_list_size)
 		{
@@ -179,16 +208,20 @@ int evaluatetoken(char *pcToken)
 		/* end marker */
 		reader_list[reader_list_size-1].pcFriendlyname = NULL;
 
-		dwChannelId = strtoul(pcChannelid, 0, 16);
+		dwChannelId = 0;
+		if (pcChannelid != NULL)
+			dwChannelId = strtoul(pcChannelid, 0, 16);
 		reader_list[reader_list_size-2].pcFriendlyname = strdup(pcFriendlyname);
 		reader_list[reader_list_size-2].pcDevicename = strdup(pcDevicename);
 		reader_list[reader_list_size-2].pcLibpath = strdup(pcLibpath),
+		reader_list[reader_list_size-2].pcAuthSvcName = strdup(pcAuthSvcName);
 		reader_list[reader_list_size-2].dwChannelId = dwChannelId;
 
 		pcFriendlyname = NULL;
 		pcDevicename = NULL;
 		pcLibpath = NULL;
 		pcChannelid = NULL;
+                pcAuthSvcName = NULL;
 	}
 
 	return 0;
@@ -221,6 +254,7 @@ int DBGetReaderList(char *readerconf, SerialReader **caller_reader_list)
 	pcFriendlyname = NULL;
 	pcDevicename = NULL;
 	pcLibpath = NULL;
+        pcAuthSvcName = NULL;
 	pcChannelid = NULL;
 	pcPrevious = NULL;
 	pcCurrent = NULL;

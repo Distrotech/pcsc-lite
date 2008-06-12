@@ -38,6 +38,8 @@ extern "C"
 #define PCSCLITE_THREAD_T                pthread_t
 #define PCSCLITE_MUTEX                   pthread_mutex_t
 #define PCSCLITE_MUTEX_T                 pthread_mutex_t*
+#define PCSCLITE_COND			 pthread_cond_t
+#define PCSCLITE_COND_T			 pthread_cond_t*
 #define PCSCLITE_THREAD_FUNCTION(f)      void *(*f)(void *)
 #endif
 
@@ -45,6 +47,10 @@ extern "C"
 #define THREAD_ATTR_DEFAULT			0
 #define THREAD_ATTR_DETACHED		1
 
+	int SYS_CondInit(PCSCLITE_COND_T mCond); 
+	int SYS_CondWait(PCSCLITE_COND_T mCond, PCSCLITE_MUTEX_T mMutex); 
+	int SYS_CondSignal(PCSCLITE_COND_T mCond);
+	int SYS_CondBroadcast(PCSCLITE_COND_T mCond);
 	int SYS_MutexInit(PCSCLITE_MUTEX_T);
 	int SYS_MutexDestroy(PCSCLITE_MUTEX_T);
 	int SYS_MutexLock(PCSCLITE_MUTEX_T);

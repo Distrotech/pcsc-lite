@@ -1,10 +1,10 @@
 # Process this file with automake to create Makefile.in.
 
-SUBDIRS = . utils
+SUBDIRS = . utils modules
 AM_CPPFLAGS = -I$(top_srcdir)/src/PCSC -I$(top_builddir)/src/PCSC \
 	$(SYMBOL_VISIBILITY)
 
-lib_LTLIBRARIES = libpcsclite.la
+lib_LTLIBRARIES = libpcsclite.la libpcsclite64.la
 
 if !HAVE_SCF
 sbin_PROGRAMS = pcscd
@@ -17,9 +17,32 @@ else
 PCSC_CLIENT_SRC  = winscard_clnt.c
 endif
 
+
+libpcsclite64_la_SOURCES = \
+	debug.c \
+	debug.h \
+	pcsc_config.h \
+	cfgfuncs.c \
+	dyn_hpux.c \
+	dyn_macosx.c \
+	dyn_unix.c \
+	error.c \
+	$(PCSC_CLIENT_SRC) \
+	strlcat.c \
+	strlcpy.c \
+	sys_unix.c \
+	thread_unix.c \
+	winscard_msg.c
+libpcsclite64_la_LDFLAGS = -64 -version-info 1:0:0
+libpcsclite64_la_CFLAGS = $(CFLAGS) -xarch=generic64 $(PTHREAD_CFLAGS) -DLIBPCSCLITE
+libpcsclite64_la_LIBADD = $(COREFOUNDATION) $(LIBSMARTCARD) $(LIBDL) \
+	$(PTHREAD_CFLAGS) $(PTHREAD_LIBS)
+
 libpcsclite_la_SOURCES = \
 	debug.c \
 	debug.h \
+	pcsc_config.h \
+	cfgfuncs.c \
 	dyn_hpux.c \
 	dyn_macosx.c \
 	dyn_unix.c \
@@ -38,9 +61,15 @@ libpcsclite_la_LIBADD = $(COREFOUNDATION) $(LIBSMARTCARD) $(LIBDL) \
 pcscd_SOURCES = \
 	atrhandler.c \
 	atrhandler.h \
+	auth.c \
+	auth.h \
 	configfile.h \
 	configfile.l \
+	pcsc_config.h \
+	cfgfuncs.c \
 	debuglog.c \
+	daemon_utils.c \
+	daemon_utils.h \
 	dyn_generic.h \
 	dyn_hpux.c \
 	dyn_macosx.c \
@@ -54,15 +83,28 @@ pcscd_SOURCES = \
 	hotplug_macosx.c \
 	ifdwrapper.c \
 	ifdwrapper.h \
+	instance.c \
+	instance.h \
+	launcher.h \
+	launcher.c \
 	misc.h \
 	parser.h \
 	pcscdaemon.c \
+	pcscdaemon.h \
+	debug.h \
+	validate.c \
+	validate.h \
+	util.h \
 	PCSC/debuglog.h \
 	PCSC/ifdhandler.h \
 	PCSC/pcsclite.h \
 	PCSC/pcsclite.h.in \
 	PCSC/winscard.h \
 	PCSC/wintypes.h \
+	PCSC/clientcred.h \
+	PCSC/pcscd-auth.h \
+	PCSC/ifd-auth.h \
+	PCSC/pcscd-validate.h \
 	powermgt_generic.c \
 	powermgt_generic.h \
 	powermgt_macosx.c \
@@ -95,10 +137,15 @@ testpcsc_SOURCES = testpcsc.c
 testpcsc_LDADD = libpcsclite.la
 
 nobase_include_HEADERS = \
+	debug.h \
+	PCSC/clientcred.h \
 	PCSC/debuglog.h \
 	PCSC/ifdhandler.h \
 	PCSC/winscard.h \
-	PCSC/wintypes.h
+	PCSC/wintypes.h \
+	PCSC/pcscd-auth.h \
+	PCSC/ifd-auth.h \
+	PCSC/pcscd-validate.h
 
 nodistheaderdir = $(includedir)/PCSC
 nodistheader_DATA = PCSC/reader.h PCSC/pcsclite.h

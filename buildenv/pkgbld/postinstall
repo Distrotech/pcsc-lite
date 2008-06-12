@@ -1,0 +1,9 @@
+#!/bin/sh
+
+cd /var/svc/manifest/application/security
+svccfg -v import pcscd.xml
+svcadm -v enable pcscd
+
+ps -ef | grep /usr/lib/smartcard/pcscd | grep -v grep
+
+exit 0

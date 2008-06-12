@@ -474,17 +474,18 @@ LONG IFDStatusICC(PREADER_CONTEXT rContext, PDWORD pdwStatus,
 	 * END OF LOCKED REGION 
 	 */
 
-	if (rv == IFD_SUCCESS || rv == IFD_ICC_PRESENT)
+	if (rv == IFD_SUCCESS || rv == IFD_ICC_PRESENT) {
 		dwCardStatus |= SCARD_PRESENT;
-	else
-		if (rv == IFD_ICC_NOT_PRESENT)
+	} else {
+		if (rv == IFD_ICC_NOT_PRESENT) {
 			dwCardStatus |= SCARD_ABSENT;
-		else
+		} else
 		{
 			Log2(PCSC_LOG_ERROR, "Card not transacted: %ld", rv);
 			return SCARD_E_NOT_TRANSACTED;
 		}
 
+        }
 	/*
 	 * Now lets get the ATR and process it if IFD Handler version 1.0.
 	 * IFD Handler version 2.0 does this immediately after reset/power up
@@ -545,8 +546,7 @@ LONG IFDStatusICC(PREADER_CONTEXT rContext, PDWORD pdwStatus,
 	}
 
 	*pdwStatus = dwCardStatus;
-
-	return SCARD_S_SUCCESS;
+        return SCARD_S_SUCCESS;
 }
 
 /*

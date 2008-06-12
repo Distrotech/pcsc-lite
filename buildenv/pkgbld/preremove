@@ -1,0 +1,14 @@
+#!/bin/bash
+#
+echo "*****************************************"
+echo "Stopping and Removing pcscd service"
+svcadm disable pcscd
+svccfg delete -f pcscd
+
+echo "Stopping pcscd instances"
+pkill -9 -f /usr/lib/smartcard/pcscd
+
+echo "Removing instance fifo files"
+rm -f /var/run/pcscd/fifo/*
+rm -f /var/run/pcscd/run/*
+echo "*****************************************"

@@ -23,6 +23,10 @@ extern "C"
 #endif
 	LONG ContextsInitialize(void);
 	LONG CreateContextThread(PDWORD);
+#ifdef _HAVE_SYS_DOOR_H
+        void ContextWaitForDoorRecv(DWORD);
+        void ContextSignalDoorRecv(char *, size_t);
+#endif        
 #ifdef __cplusplus
 }
 #endif

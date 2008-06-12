@@ -21,6 +21,7 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <sys/file.h>
+#include <libgen.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
@@ -60,7 +61,7 @@ INTERNAL int SYS_Initialize(void)
  */
 INTERNAL int SYS_Mkdir(char *path, int perms)
 {
-	return mkdir(path, perms);
+	return mkdir(path, perms); 
 }
 
 /**
@@ -532,5 +533,32 @@ INTERNAL int SYS_Rmdir(char *pcFile)
 INTERNAL int SYS_Unlink(char *pcFile)
 {
 	return unlink(pcFile);
+}
+
+INTERNAL char *SYS_Getenv(char *name)
+{
+        return getenv(name);
+}
+
+INTERNAL char *SYS_Dirname(char *fullpath) 
+{
+	char *rv, path[255];
+	if (fullpath == NULL)
+		return NULL;
+	strcpy(path, fullpath);
+	if ((rv = dirname(path)) == NULL)
+		return NULL;
+	return strdup(rv);
+}
+
+INTERNAL char *SYS_Basename(char *fullpath) 
+{
+	char *rv, path[255];
+	if (fullpath == NULL)
+		return NULL;
+	strcpy(path, fullpath);
+	if ((rv = basename(path)) == NULL)
+		return NULL;
+	return strdup(rv);
 }
 

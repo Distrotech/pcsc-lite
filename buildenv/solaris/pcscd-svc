@@ -1,0 +1,49 @@
+#!/sbin/sh
+
+. /lib/svc/share/smf_include.sh
+
+PIDFILE=/var/run/pcscd/pcscd.pid
+PCSCD=/usr/lib/smartcard/pcscd
+
+case "$1" in
+start)
+	if [ -f "$PIDFILE" ]; then
+		rm -f $PIDFILE
+	fi
+	if [ -f "$PCSCD" ]; then 
+		$PCSCD -L
+		exit $SMF_EXIT_OK
+	else
+		exit $SMF_ERR_FATAL
+	fi
+	;;
+stop)
+	pkill -f "$PCSCD -L"
+	pkill -f "$PCSCD -I"
+	pkill -f "utaction -x $PCSCD"
+	exit $SMF_EXIT_OK
+	;;
+restart)
+	pkill -f "$PCSCD -L"
+	if [ -f "$PIDFILE" ]; then
+		rm -f $PIDFILE
+	fi
+	if [ -f "$PCSCD" ]; then 
+		$PCSCD -L
+		exit $SMF_EXIT_OK
+	else
+		exit $SMF_ERR_FATAL
+	fi
+	;;
+debug)  
+	rm -f ${PIDFILE}
+        $PCSCD -f -d debug -L
+	;;
+
+*)
+	echo "Usage: $0 {start|stop}"
+	exit $SMF_ERR_FATAL
+	;;
+esac
+
+exec $cmd

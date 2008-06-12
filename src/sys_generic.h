@@ -51,6 +51,8 @@ extern "C"
 
 	int SYS_GetGID(void);
 
+	char *SYS_Getenv(char *);
+
 	int SYS_Chown(const char *, int, int);
 
 	int SYS_ChangePermissions(char *, int);
@@ -96,6 +98,10 @@ extern "C"
 	int SYS_Rmdir(char *pcFile);
 
 	int SYS_Unlink(char *pcFile);
+
+        char *SYS_Basename(char *fullpath);
+
+        char *SYS_Dirname(char *fullpath);
 
 #ifdef __cplusplus
 }

@@ -13,7 +13,7 @@
  * @file
  * @brief This handles debugging for pcscd.
  */
- 
+
 #include "config.h"
 #ifdef HAVE_SYSLOG_H
 #include <syslog.h>
@@ -22,19 +22,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <stdarg.h>
 #include <assert.h>
 #include <sys/types.h>
+#include <fcntl.h>
 
 #include "pcsclite.h"
 #include "misc.h"
 #include "debuglog.h"
 #include "sys_generic.h"
+#include <sys/time.h>
 #include "strlcpycat.h"
 
-/** 
+/**
  * Max string size when dumping a 256 bytes longs APDU
- * Should be bigger than 256*3+30 
+ * Should be bigger than 256*3+30
  */
 #define DEBUG_BUF_SIZE 2048
 
@@ -43,37 +46,70 @@ static char LogMsgType = DEBUGLOG_NO_DEBUG;
 static char LogCategory = DEBUG_CATEGORY_NOTHING;
 
 /* default level is a bit verbose to be backward compatible */
-static char LogLevel = PCSC_LOG_INFO;
+static int LogLevel = PCSC_LOG_INFO;
 
 static signed char LogDoColor = 0;	/* no color by default */
 
 void log_msg(const int priority, const char *fmt, ...)
 {
-	char DebugBuffer[DEBUG_BUF_SIZE];
+	char *wrkbuf, *printbuf;
 	va_list argptr;
+	static int init_flag;
+	time_t clock = time(0);
+	struct tm *curtime = 0;
+	unsigned long ms;
+
 
 	if ((LogSuppress != DEBUGLOG_LOG_ENTRIES)
 		|| (priority < LogLevel) /* log priority lower than threshold? */
 		|| (DEBUGLOG_NO_DEBUG == LogMsgType))
 		return;
 
+	curtime = localtime(&clock);
+	printbuf = malloc(DEBUG_BUF_SIZE);
+	if (printbuf == NULL) {
+		syslog(LOG_ERR, "Out of Memory");
+		return;
+	}
+
+	bzero(printbuf, DEBUG_BUF_SIZE);
+	wrkbuf = malloc(DEBUG_BUF_SIZE);
+	if (wrkbuf == NULL) {
+		syslog(LOG_ERR, "Out of Memory");
+		free(printbuf);
+		return;
+	}
+	bzero(wrkbuf, DEBUG_BUF_SIZE);
+
 	va_start(argptr, fmt);
 #ifndef WIN32
-	vsnprintf(DebugBuffer, DEBUG_BUF_SIZE, fmt, argptr);
+	vsnprintf(wrkbuf, DEBUG_BUF_SIZE, fmt, argptr);
 #else
 #if HAVE_VSNPRINTF
-	vsnprintf(DebugBuffer, DEBUG_BUF_SIZE, fmt, argptr);
+	vsnprintf(wrkbuf, DEBUG_BUF_SIZE, fmt, argptr);
 #else
-	vsprintf(DebugBuffer, fmt, argptr);
+	vsprintf(wrkbuf, fmt, argptr);
 #endif
 #endif
 	va_end(argptr);
 
+	ms  = (unsigned long)
+		((gethrtime() / (unsigned long long)100000) % 10000);
+
+	sprintf(printbuf, "%2d:%2.2d:%2.2d.%4.4d ",
+		curtime->tm_hour, curtime->tm_min, curtime->tm_sec, ms);
+
+	strlcat(printbuf, wrkbuf, DEBUG_BUF_SIZE);
+
 #ifndef WIN32
-	if (DEBUGLOG_SYSLOG_DEBUG == LogMsgType)
-		syslog(LOG_INFO, "%s", DebugBuffer);
-	else
-	{
+	if (DEBUGLOG_SYSLOG_DEBUG == LogMsgType) {
+#if HAVE_SYSLOG_H
+		syslog(LOG_INFO, "%s", wrkbuf);
+#endif
+	} else {
+		if (priority == PCSC_LOG_CRITICAL)
+			syslog(LOG_ERR, "%s", wrkbuf);
+
 		if (LogDoColor)
 		{
 			const char *color_pfx = "", *color_sfx = "\33[0m";
@@ -97,33 +133,50 @@ void log_msg(const int priority, const char *fmt, ...)
 					color_sfx = "";
 					break;
 			}
-			fprintf(stderr, "%s%s%s\n", color_pfx, DebugBuffer, color_sfx);
+			fprintf(stderr, "%s%s%s\n", color_pfx, wrkbuf, color_sfx);
 		}
-		else
-			fprintf(stderr, "%s\n", DebugBuffer);
+		else {
+			write(2, printbuf, strlen(printbuf));
+			write(2, "\n", 1);
+		}
 	}
 #else
-	fprintf(stderr, "%s\n", DebugBuffer);
+		write(2, printbuf, strlen(printbuf));
+		write(2, "\n", 1);
 #endif
+	free(printbuf);
+	free(wrkbuf);
 } /* log_msg */
 
+int init_flag = 0;
 void log_xxd(const int priority, const char *msg, const unsigned char *buffer,
 	const int len)
 {
-	char DebugBuffer[DEBUG_BUF_SIZE];
+	static char wrkbuf[DEBUG_BUF_SIZE];
 	int i;
 	char *c;
 	char *debug_buf_end;
+	time_t clock = time(0);
+	struct tm *curtime = localtime(&clock);
+
+	/*
+	 * Set stderr to non-blocking
+	 */
+	if (init_flag) {
+		init_flag = 1;
+		fcntl(2, F_SETFL, O_NDELAY);
+	}
 
 	if ((LogSuppress != DEBUGLOG_LOG_ENTRIES)
 		|| (priority < LogLevel) /* log priority lower than threshold? */
 		|| (DEBUGLOG_NO_DEBUG == LogMsgType))
 		return;
 
-	debug_buf_end = DebugBuffer + DEBUG_BUF_SIZE - 5;
+	debug_buf_end = wrkbuf + DEBUG_BUF_SIZE - 5;
 
-	strlcpy(DebugBuffer, msg, sizeof(DebugBuffer));
-	c = DebugBuffer + strlen(DebugBuffer);
+	sprintf(wrkbuf, "%d:%d ", curtime->tm_hour, curtime->tm_min);
+	strlcat(wrkbuf, msg, sizeof(wrkbuf));
+	c = wrkbuf + strlen(wrkbuf);
 
 	for (i = 0; (i < len) && (c < debug_buf_end); ++i)
 	{
@@ -137,10 +190,12 @@ void log_xxd(const int priority, const char *msg, const unsigned char *buffer,
 
 #ifndef WIN32
 	if (DEBUGLOG_SYSLOG_DEBUG == LogMsgType)
-		syslog(LOG_INFO, "%s", DebugBuffer);
-	else
+		syslog(LOG_INFO, "%s", wrkbuf);
+	else {
 #endif
-		fprintf(stderr, "%s\n", DebugBuffer);
+		write(2, wrkbuf, strlen(wrkbuf));
+		write(2, "\n", 1);
+	}
 } /* log_xxd */
 
 #ifdef PCSCD
@@ -195,20 +250,22 @@ void DebugLogSetLogType(const int dbgtype)
 
 void DebugLogSetLevel(const int level)
 {
-	LogLevel = level;
-	switch (level)
-	{
+	if (LogLevel == level)
+		return;
+
+	switch (level)	{
 		case PCSC_LOG_CRITICAL:
+			break;
+
 		case PCSC_LOG_ERROR:
-			/* do not log anything */
 			break;
 
 		case PCSC_LOG_INFO:
-			Log1(PCSC_LOG_INFO, "debug level=notice");
+			Log1(PCSC_LOG_INFO, "debug level notice");
 			break;
 
 		case PCSC_LOG_DEBUG:
-			Log1(PCSC_LOG_DEBUG, "debug level=debug");
+			Log1(PCSC_LOG_DEBUG, "debug level debug");
 			break;
 
 		default:
@@ -216,6 +273,7 @@ void DebugLogSetLevel(const int level)
 			Log2(PCSC_LOG_CRITICAL, "unknown level (%d), using level=notice",
 				level);
 	}
+	LogLevel = level;
 }
 
 INTERNAL int DebugLogSetCategory(const int dbginfo)
@@ -261,7 +319,7 @@ INTERNAL void DebugLogCategory(const int category, const unsigned char *buffer,
 #ifdef PCSCD
 void debug_msg(const char *fmt, ...)
 {
-	char DebugBuffer[DEBUG_BUF_SIZE];
+	char wrkbuf[DEBUG_BUF_SIZE];
 	va_list argptr;
 
 	if ((LogSuppress != DEBUGLOG_LOG_ENTRIES)
@@ -270,22 +328,22 @@ void debug_msg(const char *fmt, ...)
 
 	va_start(argptr, fmt);
 #ifndef WIN32
-	vsnprintf(DebugBuffer, DEBUG_BUF_SIZE, fmt, argptr);
+	vsnprintf(wrkbuf, DEBUG_BUF_SIZE, fmt, argptr);
 #else
 #if HAVE_VSNPRINTF
-	vsnprintf(DebugBuffer, DEBUG_BUF_SIZE, fmt, argptr);
+	vsnprintf(wrkbuf, DEBUG_BUF_SIZE, fmt, argptr);
 #else
-	vsprintf(DebugBuffer, fmt, argptr);
+	vsprintf(wrkbuf, fmt, argptr);
 #endif
 #endif
 	va_end(argptr);
 
 #ifndef WIN32
 	if (DEBUGLOG_SYSLOG_DEBUG == LogMsgType)
-		syslog(LOG_INFO, "%s", DebugBuffer);
+		syslog(LOG_INFO, "%s", wrkbuf);
 	else
 #endif
-		fprintf(stderr, "%s\n", DebugBuffer);
+		fprintf(stderr, "%s\n", wrkbuf);
 } /* debug_msg */
 
 void debug_xxd(const char *msg, const unsigned char *buffer, const int len)
@@ -293,4 +351,68 @@ void debug_xxd(const char *msg, const unsigned char *buffer, const int len)
 	log_xxd(PCSC_LOG_ERROR, msg, buffer, len);
 } /* debug_xxd */
 #endif
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <unistd.h>
+#include <thread.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+#define MAXBUF  ( 256 * 256 )
+
+/*
+ * Display stack traceback of specified thread (0 = current thread)
+ * on stdout.
+ */
+void
+traceback(int thr)
+{
+	int pfds[2], tid;
+
+	pipe(pfds);
+	tid = (thr == 0) ? thr_self() : thr;
+
+	if (fork() == 0) {
+		char buf[MAXBUF], cmp[20], line[256], *cp, *lb, *lp;
+		int triggered = 0, bufsize = 0, n;
+		printf("------------- Thread# %d "
+		       "Traceback --------------\n", tid);
+		if ((n = read(pfds[0], buf + bufsize, MAXBUF)) >= 0)
+			bufsize += n;
+		lb = buf + bufsize;
+		for(cp = buf; cp < lb;) {
+			bzero(lp = line, sizeof (line));
+			while (*cp++ != '\n' && cp < lb)
+				*lp++ = *cp;
+			*--lp = '\0';
+			if (!triggered) {
+			    sprintf(cmp, "thread# %d", tid);
+			    if (strstr(line, cmp) == NULL)
+				continue;
+			    triggered = 1;
+			    continue;
+			}
+			if (triggered && *line == '-') {
+				printf("------------------------"
+				       "------------------------\n");
+				return;
+			}
+			puts(line);
+		}
+		printf("------------------------"
+		       "------------------------\n");
+		exit(0);
+	} else {
+		char cmd[15];
+		int out = dup(1);
+		sprintf(cmd, "/bin/pstack %d", getpid());
+		dup2(pfds[1], 1);
+		system(cmd);
+		dup2(out, 1);
+	}
+}
 

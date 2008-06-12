@@ -1,0 +1,40 @@
+## Building pkgmap from package prototype file.
+## Processing pkginfo file.
+WARNING: missing directory entry for <usr/lib/64>
+WARNING: missing directory entry for <usr/lib/pkgconfig>
+## Attempting to volumize 41 entries in pkgmap.
+part  1 -- 3010 blocks, 35 entries
+## Packaging one part.
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/pkgmap
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/pkginfo
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/install/depend
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/etc/smartcard/pcscd-Local.conf
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/etc/smartcard/pcscd.conf
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/lib/svc/method/pcscd-svc
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/install/postinstall
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/install/preinstall
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/install/preremove
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/clientcred.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/debug.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/debuglog.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/ifd-auth.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/ifdhandler.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/pcscd-auth.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/pcscd-validate.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/pcsclite.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/reader.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/winscard.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/include/smartcard/wintypes.h
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/lib/64/libpcsclite.so.1
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/lib/libpcsclite.so.1
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/lib/pkgconfig/libpcsclite.pc
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/lib/smartcard/ifdAuth.so.1
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/lib/smartcard/pcscd
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/lib/smartcard/pcscd-Local
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/lib/smartcard/pcscdAuth-Local.so.1
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/lib/smartcard/pcscdValidate.so.1
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/usr/lib/smartcard/pcscd_validate.conf
+/local/home/paul/new/buildenv/dist/sparc/SolarisPCSC/reloc/var/svc/manifest/application/security/pcscd.xml
+## Validating control scripts.
+WARNING: script <preinstall> may seek access to the transitional package database at line <273>. This is safest in the postinstall or postremove script.
+## Packaging complete.

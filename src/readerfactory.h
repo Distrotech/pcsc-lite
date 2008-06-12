@@ -30,6 +30,7 @@ extern "C"
 		char *pcFriendlyname;
 		char *pcDevicename;
 		char *pcLibpath;
+		char *pcAuthSvcName;
 		int dwChannelId;
 	} SerialReader;
 
@@ -143,6 +144,7 @@ extern "C"
 		char lpcReader[MAX_READERNAME];	/* Reader Name */
 		char lpcLibrary[MAX_LIBNAME];	/* Library Path */
 		char lpcDevice[MAX_DEVICENAME];	/* Device Name */
+		char lpcAuthSvc[MAX_AUTHSVCNAME]; /* Auth service name */
 		PCSCLITE_THREAD_T pthThread;	/* Event polling thread */
 		PCSCLITE_MUTEX_T mMutex;	/* Mutex for this connection */
 		RDR_CLIHANDLES psHandles[PCSCLITE_MAX_READER_CONTEXT_CHANNELS];	
@@ -180,7 +182,7 @@ extern "C"
 	typedef struct ReaderContext READER_CONTEXT, *PREADER_CONTEXT;
 
 	LONG RFAllocateReaderSpace(void);
-	LONG RFAddReader(LPSTR, DWORD, LPSTR, LPSTR);
+	LONG RFAddReader(LPSTR, DWORD, LPSTR, LPSTR, LPSTR);
 	LONG RFRemoveReader(LPSTR, DWORD);
 	LONG RFSetReaderName(PREADER_CONTEXT, LPSTR, LPSTR, DWORD, DWORD);
 	LONG RFListReaders(LPSTR, LPDWORD);

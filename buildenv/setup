@@ -1,0 +1,44 @@
+#!/sbin/sh
+#
+# Set's up PC/SC lite workspace (configures it for OS)
+#
+# Prerequisites:
+#   Solaris 10 Companion software (/opt/sfw)
+#   SUNWspro version 11+ compilers (/opt/SUNWspro)
+#
+#
+# Configure for building PCSClite on Solaris
+#
+# Prerequisites:
+#
+#   Solaris 10 Companion Software (/opt/sfw)
+#   SUNWspro Version 11+ Compilers (/opt/SUNWspro)
+#
+
+PROTO_ROOT=$1
+chmod 777 $PROTO_ROOT/..
+cd pcsclite
+echo "Executing configure $PWD/configure"
+./configure \
+	--prefix=$PROTO_ROOT \
+	--exec-prefix=$PROTO_ROOT \
+	--enable-portsvc=5999 \
+	--enable-confdir=/etc/smartcard \
+	--enable-xtag=/usr/dt/config/Xservers \
+	--enable-rtlibdir=/usr/lib/smartcard \
+	--enable-runpid=/var/run/pcscd/pcscd.pid \
+	--enable-ipcdir=/var/run \
+	--enable-libusb=/usr/sfw/lib \
+	--enable-usbdropdir=/usr/lib/smartcard \
+	--libdir=$PROTO_ROOT/usr/lib \
+	--bindir=$PROTO_ROOT/usr/lib/smartcard \
+	--sysconfdir=$PROTO_ROOT/etc/smartcard \
+	--sbindir=$PROTO_ROOT/usr/lib/smartcard \
+	--includedir=$PROTO_ROOT/usr/include/smartcard \
+	--datadir=$PROTO_ROOT/usr/share/doc/smartcard \
+	--localedir=$iPROTO_ROOT/usr/share/locale \
+	--infodir=$PROTO_ROOT/usr/share/doc/smartcard \
+	--docdir=$PROTO_ROOT/usr/share/doc/smartcard \
+	--pdfdir=$PROTO_ROOT/usr/share/doc/smartcard \
+	--mandir=$PROTO_ROOT/usr/man \
+

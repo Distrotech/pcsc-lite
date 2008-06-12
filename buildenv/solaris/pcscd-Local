@@ -1,0 +1,34 @@
+#!/bin/sh
+#
+# Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+# Use is subject to license terms.
+#
+
+while getopts x:P:p:b:m: opt; do
+     case $opt in
+	   m)   mode=$OPTARG;;
+           x)   DISPLAY=$OPTARG;;
+           b)   BASEDIR=$OPTARG;;
+	   P)   CONFIG=$OPTARG;;
+	   p)   INSTPID=$OPTARG;;
+          \?)   logger -t pcscd-Local -p user.err \
+                   "Bad argument passed to launch script"
+                exit 1;;
+     esac
+done
+shift `expr $OPTIND - 1`
+
+if [ -z "$DISPLAY" ]; then
+        logger -t pcscd-Local -p user.err \
+            "Missing DISPLAY (-x parameter ) in launch script"
+        exit 1
+fi
+if [ -z "$BASEDIR" ]; then
+        logger -t pcscd-Local -p user.err \
+            "Missing BASEDIR (-b parameter) in launch script"
+        exit 1
+fi
+
+chmod -R 700 $BASEDIR
+
+exit 0

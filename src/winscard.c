@@ -10,7 +10,7 @@
 
 /**
  * @mainpage MUSCLE PC/SC-Lite API Documentation
- * 
+ *
  * @section Introduction
  *
  * This document contains the reference API calls for communicating to the
@@ -29,7 +29,7 @@
  *
  * I would really like to hear from you. If you have any feedback either on
  * this documentation or on the MUSCLE project please feel free to email me at:
- * corcoran@musclecard.com. 
+ * corcoran@musclecard.com.
  *
  *
  * @section API Routines
@@ -45,10 +45,10 @@
  *
  * For a human readable representation of an error the function
  * pcsc_stringify_error() is declared in pcsclite.h. This function is not
- * available on Microsoft(R) winscard API and is pcsc-lite specific. 
+ * available on Microsoft(R) winscard API and is pcsc-lite specific.
  *
  * @section Internals
- * 
+ *
  * PC/SC Lite is formed by a server deamon (<tt>pcscd</tt>) and a client
  * library (<tt>libpcsclite.so</tt>) that communicate via IPC.
  *
@@ -82,17 +82,34 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/types.h>
+#include <signal.h>
+#include <arpa/inet.h>
+
 
 #include "pcsclite.h"
+#include "pcsc_config.h"
+#include "clientcred.h"
 #include "winscard.h"
+#include "winscard_client.h"
 #include "ifdhandler.h"
 #include "debuglog.h"
 #include "readerfactory.h"
 #include "prothandler.h"
 #include "ifdwrapper.h"
 #include "atrhandler.h"
+#include "validate.h"
+#include "auth.h"
 #include "sys_generic.h"
 #include "eventhandler.h"
+#include "pcscd-validate.h"
+#include "pcscd-auth.h"
+
 
 /** used for backward compatibility */
 #define SCARD_PROTOCOL_ANY_OLD	 0x1000
@@ -111,11 +128,23 @@ SCARD_IO_REQUEST g_rgSCardT1Pci = { SCARD_PROTOCOL_T1, 8 };
 SCARD_IO_REQUEST g_rgSCardRawPci = { SCARD_PROTOCOL_RAW, 8 };
 
 /**
+ * @brief Represents the an Application Context on the Server side.
+ *
+ * An Application Context contains Channels (\c hCard).
+ */
+static struct _psContext
+{
+	int is_allocated;                       /* flag */
+	PCSCLITE_CRED_T cred;                   /* Client credentials struct */
+} psContext[PCSCLITE_MAX_APPLICATIONS_CONTEXTS];
+
+
+/**
  * @brief Creates an Application Context for a client.
  *
  * This must be the first function called in a PC/SC application.
  *
- * @param[in] dwScope Scope of the establishment. 
+ * @param[in] dwScope Scope of the establishment.
  * This can either be a local or remote connection.
  * <ul>
  *   <li>SCARD_SCOPE_USER - Not used.
@@ -135,6 +164,10 @@ SCARD_IO_REQUEST g_rgSCardRawPci = { SCARD_PROTOCOL_RAW, 8 };
 LONG SCardEstablishContext(DWORD dwScope, LPCVOID pvReserved1,
 	LPCVOID pvReserved2, LPSCARDCONTEXT phContext)
 {
+	int i;
+	char buf[80];
+	PCSCLITE_CRED_T *cred;
+
 	/*
 	 * Check for NULL pointer
 	 */
@@ -144,30 +177,79 @@ LONG SCardEstablishContext(DWORD dwScope, LPCVOID pvReserved1,
 	if (dwScope != SCARD_SCOPE_USER && dwScope != SCARD_SCOPE_TERMINAL &&
 		dwScope != SCARD_SCOPE_SYSTEM && dwScope != SCARD_SCOPE_GLOBAL)
 	{
-
 		*phContext = 0;
 		return SCARD_E_INVALID_VALUE;
 	}
 
+
 	/*
-	 * Unique identifier for this server so that it can uniquely be
-	 * identified by clients and distinguished from others
+	 * GeFt a unique identifier for this context
 	 */
+	for (i = 0; i < PCSCLITE_MAX_APPLICATIONS_CONTEXTS; i++)
+	{
+	      if (!psContext[i].is_allocated) {
+		      *phContext = PCSCLITE_SVC_IDENTITY + i;
+		      psContext[i].is_allocated = 1;
+		      break;
+	      }
+	}
+	cred = &psContext[i].cred;
+	memcpy(cred, (PCSCLITE_CRED_T *)pvReserved2, sizeof(struct pcsc_client_cred));
+	if (pcscCfg.useAuthentication && (pcscCfg.launchMode != INSTANCE))
+	{
+		char *facilityTag = NULL;
+		void *resource = NULL;
+		char credinfo[80];
+		void *ctx;
+		unsigned int flags;
 
-	*phContext = (PCSCLITE_SVC_IDENTITY + SYS_RandomInt(1, 65535));
+		char *ipaddr =  inet_ntoa(*(struct in_addr *)&cred->clientXhostIP);
 
-	Log2(PCSC_LOG_DEBUG, "Establishing Context: %d", *phContext);
+		sprintf(credinfo, "[ <%s>:%d.%d, EUID: %d, EGID: %d ]",
+		    ipaddr, cred->dpyNbr, cred->screenNbr,
+		    cred->euid, cred->egid);
 
+		if (VALgetDisplayStatus(cred->dpyNbr, &ctx, &flags) != DISPLAY_IS_VALID ||
+		    VALgetDisplayTag(cred->dpyNbr, ctx, &facilityTag) == NULL) {
+			Log2(PCSC_LOG_ERROR,
+				"Validation Failed: Display "
+				":%d not configured as valid", cred->dpyNbr);
+			return SCARD_E_NO_PERMISSION;
+		}
+		VALgetDisplayResource(cred->dpyNbr, ctx, &resource);
+		if (AUTHCheckDaemon((const char *)facilityTag, cred, resource) < 0) {
+			Log3(PCSC_LOG_ERROR,
+			     "\n\"%s\" authentication FAILED\n"
+			     "Client creds: %s\n",
+			     facilityTag, credinfo);
+			free(facilityTag);
+			if (resource)
+				free(resource);
+			return SCARD_E_NO_PERMISSION;
+		}
+		Log3(PCSC_LOG_DEBUG,
+		     "\"%s\" authentication SUCCEEDED\n"
+		     " Client creds: %s\n",
+		     facilityTag, credinfo);
+		free(facilityTag);
+		if (resource)
+			free(resource);
+	}
+	Log2(PCSC_LOG_DEBUG, "Establishing Context: 0x%x", *phContext);
 	return SCARD_S_SUCCESS;
 }
 
 LONG SCardReleaseContext(SCARDCONTEXT hContext)
 {
-	/*
-	 * Nothing to do here RPC layer will handle this
-	 */
+	int i = hContext - PCSCLITE_SVC_IDENTITY;
 
-	Log2(PCSC_LOG_DEBUG, "Releasing Context: %d", hContext);
+	if (i < 0 || i > PCSCLITE_MAX_APPLICATIONS_CONTEXTS)
+		return SCARD_E_INVALID_PARAMETER;
+
+	psContext[i].is_allocated = 0;
+	memset(&psContext[i].cred, 0, sizeof(struct pcsc_client_cred));
+
+	Log2(PCSC_LOG_DEBUG, "Releasing Context: 0x%x", hContext);
 
 	return SCARD_S_SUCCESS;
 }
@@ -189,7 +271,8 @@ LONG SCardConnect(SCARDCONTEXT hContext, LPCSTR szReader,
 	LONG rv;
 	PREADER_CONTEXT rContext = NULL;
 	DWORD dwStatus;
-
+	int ctxidx;
+	int cnt = 0;
 	/*
 	 * Check for NULL parameters
 	 */
@@ -197,6 +280,11 @@ LONG SCardConnect(SCARDCONTEXT hContext, LPCSTR szReader,
 		return SCARD_E_INVALID_PARAMETER;
 	else
 		*phCard = 0;
+
+	ctxidx = (unsigned int)hContext - PCSCLITE_SVC_IDENTITY;
+	if (ctxidx > PCSCLITE_MAX_APPLICATIONS_CONTEXTS)
+		return SCARD_E_NO_PERMISSION;
+
 
 	if (!(dwPreferredProtocols & SCARD_PROTOCOL_T0) &&
 			!(dwPreferredProtocols & SCARD_PROTOCOL_T1) &&
@@ -211,7 +299,6 @@ LONG SCardConnect(SCARDCONTEXT hContext, LPCSTR szReader,
 
 	Log3(PCSC_LOG_DEBUG, "Attempting Connect to %s using protocol: %d",
 		szReader, dwPreferredProtocols);
-
 	rv = RFReaderInfo((LPSTR) szReader, &rContext);
 
 	if (rv != SCARD_S_SUCCESS)
@@ -219,6 +306,7 @@ LONG SCardConnect(SCARDCONTEXT hContext, LPCSTR szReader,
 		Log2(PCSC_LOG_ERROR, "Reader %s Not Found", szReader);
 		return rv;
 	}
+
 
 	/*
 	 * Make sure the reader is working properly
@@ -259,12 +347,64 @@ LONG SCardConnect(SCARDCONTEXT hContext, LPCSTR szReader,
 		}
 	}
 
+	/***************************************************
+	 *
+	 * This section authenticates access to the reader
+	 * if authentication option is enabled
+	 *
+	 ***************************************************/
+#if 0
+	if (pcscCfg.useAuthentication) {
+
+		PCSCLITE_CRED_T *cred = &psContext[ctxidx].cred;
+		char *ipaddr =  inet_ntoa(*(struct in_addr *)&cred->clientXhostIP);
+		char *facilityTag = NULL;
+		char credinfo[80];
+		int status;
+
+		sprintf(credinfo, "[ <%s>:%d.%d, EUID: %d, EGID: %d ]",
+		    ipaddr, cred->dpyNbr, cred->screenNbr,
+		    cred->euid, cred->egid);
+
+		if ((VALgetDisplayTag(cred->dpyNbr, &facilityTag)) == NULL) {
+			Log2(PCSC_LOG_ERROR,
+				"Validation Failed: Display "
+				":%d not configured as valid", cred->dpyNbr);
+			return SCARD_E_NO_PERMISSION;
+		}
+		status = AUTHCheckIfd(facilityTag, cred, szReader,
+		    rContext->lpcAuthSvc);
+		if (status < 0) {
+			Log3(PCSC_LOG_DEBUG,
+				"IFD authentication FAILED for reader:\n\"%s\""
+				"\nClient creds: %s\n",
+				szReader, credinfo);
+
+			return SCARD_E_NO_PERMISSION;
+		} else {
+			Log3(PCSC_LOG_DEBUG,
+				"IFD authentication SUCCEEDED for reader: \n\"%s\"\n"
+				"Client creds: %s\n",
+				szReader, credinfo);
+		}
+		if (facilityTag != NULL)
+			free(facilityTag);
+	}
+#endif
+
 	/*******************************************
 	 *
 	 * This section tries to decode the ATR
 	 * and set up which protocol to use
 	 *
 	 *******************************************/
+
+	/*
+	 * Give the IFD handler a chance to initialize before proceeding
+	 */
+	while(rContext->readerState->cardAtrLength == 0 && ++cnt < 25)
+		usleep(200000);
+
 	if (dwPreferredProtocols & SCARD_PROTOCOL_RAW)
 		rContext->readerState->cardProtocol = SCARD_PROTOCOL_RAW;
 	else
@@ -685,22 +825,26 @@ LONG SCardDisconnect(SCARDHANDLE hCard, DWORD dwDisposition)
 	LONG rv;
 	PREADER_CONTEXT rContext = NULL;
 
-	if (hCard == 0)
+	if (hCard == 0) {
 		return SCARD_E_INVALID_HANDLE;
+	}
 
 	rv = RFReaderInfoById(hCard, &rContext);
-	if (rv != SCARD_S_SUCCESS)
+	if (rv != SCARD_S_SUCCESS) {
 		return rv;
+	}
 
 	rv = RFFindReaderHandle(hCard);
-	if (rv != SCARD_S_SUCCESS)
+	if (rv != SCARD_S_SUCCESS) {
 		return rv;
+	}
 
 	if ((dwDisposition != SCARD_LEAVE_CARD)
 		&& (dwDisposition != SCARD_UNPOWER_CARD)
 		&& (dwDisposition != SCARD_RESET_CARD)
-		&& (dwDisposition != SCARD_EJECT_CARD))
+		&& (dwDisposition != SCARD_EJECT_CARD)) {
 		return SCARD_E_INVALID_VALUE;
+	}
 
 	/*
 	 * Unlock any blocks on this context
@@ -832,14 +976,14 @@ LONG SCardDisconnect(SCARDHANDLE hCard, DWORD dwDisposition)
 	 */
 	rContext->dwContexts -= 1;
 
-	if (rContext->dwContexts < 0)
+	if (rContext->dwContexts < 0) {
 		rContext->dwContexts = 0;
+	}
 
 	/*
 	 * Allow the status thread to convey information
 	 */
 	SYS_USleep(PCSCLITE_STATUS_POLL_RATE + 10);
-
 	return SCARD_S_SUCCESS;
 }
 
@@ -878,8 +1022,7 @@ LONG SCardBeginTransaction(SCARDHANDLE hCard)
 
 	rv = RFLockSharing(hCard);
 
-	Log2(PCSC_LOG_DEBUG, "Status: %d.", rv);
-
+//	Log2(PCSC_LOG_DEBUG, "SCardBeginTransaction() status: 0x%x.", rv);
 	return rv;
 }
 
@@ -907,6 +1050,9 @@ LONG SCardEndTransaction(SCARDHANDLE hCard, DWORD dwDisposition)
 	 */
 	if (rv != SCARD_S_SUCCESS)
 		return rv;
+
+//	Log3(PCSC_LOG_DEBUG, "SCardEndTransaction() hContext=0x%x, hCard=0x%x",
+//		rContext, hCard);
 
 	rv = RFFindReaderHandle(hCard);
 	if (rv != SCARD_S_SUCCESS)
@@ -1026,7 +1172,7 @@ LONG SCardEndTransaction(SCARDHANDLE hCard, DWORD dwDisposition)
 	 */
 	RFUnlockSharing(hCard);
 
-	Log2(PCSC_LOG_DEBUG, "Status: %d.", rv);
+	Log2(PCSC_LOG_DEBUG, "Status: 0x%x.", rv);
 
 	return rv;
 }
