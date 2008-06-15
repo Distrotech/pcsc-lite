@@ -1,8 +1,8 @@
-This is Solaris-specific version of PC/SC-Lite that has been re-architected
+This is Solaris-specific version of PC/SC-lite that has been re-architected
 with security and scalability enhancements to support larger installs
 beyond just single user machines -- for example thin client networks.
 
-Some of the changes were necessitated by the requirement that PC/SC-Lite
+Some of the changes were necessitated by the requirement that PC/SC-lite
 run under the security constraints of Solaris Trusted Extensions and
 Solaris Zones.
 
